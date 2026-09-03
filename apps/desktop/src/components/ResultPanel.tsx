@@ -15,7 +15,9 @@ interface Props {
   onRefreshPrices: () => void;
   onSaveYear: () => void;
   onTogglePaid: (hijriYear: number) => void;
-  onGoTo: (view: "assets" | "liabilities" | "settings") => void;
+  onGoTo: (view: "assets" | "liabilities" | "settings" | "statements" | "years") => void;
+  /** Move the anniversary to the date the hawl restarted (R2.2). */
+  onAdoptRestart: (restartedOn: string) => void;
 }
 
 const VERDICT: Record<CalculationResult["verdict"], { title: string; tone: string }> = {
@@ -80,6 +82,29 @@ export default function ResultPanel(p: Props) {
             <Stat label="Deductible liabilities" value={money(result.totals.deductibleLiabilities, currency)} />
             <Stat label={`Nisab (${result.nisab.grams} g ${result.nisab.metal})`} value={money(result.nisab.value, currency)} />
           </section>
+
+          {result.hawl && (
+            <section className={`rounded-xl border px-4 py-3 text-sm ${result.hawl.complete ? "border-sand-200 bg-white" : "border-gold-400/50 bg-gold-100/60"}`}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium">
+                    Hawl {result.hawl.complete ? "complete" : "not complete"}
+                    {result.hawl.checkedDays > 0 && <span className="ml-2 text-xs font-normal text-ink/50">{result.hawl.checkedDays} days of balance history checked</span>}
+                    {result.hawl.dipCount > 0 && <span className="ml-2 text-xs font-normal text-gold-600">{result.hawl.dipCount} dip{result.hawl.dipCount === 1 ? "" : "s"} below nisab</span>}
+                  </div>
+                  <div className="mt-1 text-ink/70">{result.hawl.note}</div>
+                  {result.hawl.checkedDays === 0 && (
+                    <button className="mt-2 text-moss-700 hover:underline" onClick={() => p.onGoTo("statements")}>Import statements to check the whole year</button>
+                  )}
+                </div>
+                {result.hawl.restartedOn && (
+                  <button className="btn-secondary shrink-0" onClick={() => p.onAdoptRestart(result.hawl!.restartedOn!)}>
+                    Move my anniversary to {result.hawl.restartedOn}
+                  </button>
+                )}
+              </div>
+            </section>
+          )}
 
           {result.warnings.length > 0 && (
             <section className="rounded-xl border border-gold-400/50 bg-gold-100/60 px-4 py-3 text-sm">

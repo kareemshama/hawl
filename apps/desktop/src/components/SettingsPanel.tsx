@@ -123,6 +123,18 @@ export default function SettingsPanel({ profile, onChange, onLock }: Props) {
             <p className="help">Leave blank for the most recent anniversary. Set a past year to reconstruct a missed one (R7).</p>
           </div>
           <div>
+            <label className="label">Hawl start date</label>
+            <input className="input num" placeholder="YYYY-MM-DD, optional" value={profile.hawlStart ?? ""} onChange={(e) => {
+              const v = e.target.value.trim();
+              const next = { ...profile };
+              if (v === "") delete next.hawlStart;
+              else if (/^\d{4}-\d{2}-\d{2}$/.test(v)) next.hawlStart = v;
+              else return;
+              onChange(next);
+            }} />
+            <p className="help">Gregorian date your wealth first reached nisab (R2.1). Leave blank to assume one year before the anniversary.</p>
+          </div>
+          <div>
             <label className="label">Currency</label>
             <select className="input" value={profile.currency} onChange={(e) => onChange({ ...profile, currency: e.target.value, cachedPrices: null })}>
               {CURRENCIES.map(([code, name]) => (

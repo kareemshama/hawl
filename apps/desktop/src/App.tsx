@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Asset, CalculationResult, Liability, Trace } from "@hawl/core-types";
 import { calculateZakat, computeNisab, yearLengthFor } from "@hawl/zakat-engine";
-import { addDays, balanceOn, accountBalancePoints, buildBalanceSeries, isCashAccount, type SeriesResult } from "@hawl/statements";
+import { addDays, buildBalanceSeries, deriveCashAssets, type SeriesResult } from "@hawl/statements";
 import {
   fetchPrices,
+  hijriFromGregorian,
   hijriPreviousOccurrence,
   hijriToGregorian,
   storeCreate,
@@ -15,17 +16,18 @@ import {
   type HijriDate,
 } from "./lib/commands";
 import { ASSET_FIELDS, ASSET_KINDS, LIABILITY_FIELDS, LIABILITY_KINDS } from "./lib/forms";
-import { DERIVED_PREFIX, emptyProfile, normalizeProfile, pricesOf, settingsOf, type Profile } from "./lib/profile";
+import { emptyProfile, normalizeProfile, pricesOf, settingsOf, type Profile } from "./lib/profile";
 import ItemsPanel from "./components/ItemsPanel";
 import ResultPanel from "./components/ResultPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import SetupWizard from "./components/SetupWizard";
 import StatementsPanel from "./components/StatementsPanel";
+import YearsPanel from "./components/YearsPanel";
 import TitleBar from "./components/TitleBar";
 import UnlockScreen, { Crescent } from "./components/UnlockScreen";
 
 type Screen = "loading" | "create" | "unlock" | "setup" | "main";
-export type View = "overview" | "statements" | "assets" | "liabilities" | "settings";
+export type View = "overview" | "statements" | "assets" | "liabilities" | "years" | "settings";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
@@ -154,24 +156,22 @@ export default function App() {
   /** Cash assets taken from statement accounts on the anniversary (R4.1, R15.1). */
   const derivedAssets = useMemo<Asset[]>(() => {
     if (!anniversary) return [];
-    const out: Asset[] = [];
-    for (const a of profile.accounts) {
-      if (!isCashAccount(a)) continue;
-      const { points } = accountBalancePoints(a, profile.transactions, profile.imports);
-      const bal = balanceOn(points, anniversary.gregorian);
-      if (bal === null) continue;
-      const lastPoint = [...points].reverse().find((p) => p.date <= anniversary.gregorian);
-      out.push({
-        kind: "cash",
-        id: `${DERIVED_PREFIX}${a.id}`,
-        label: a.name,
-        amount: Math.max(0, bal),
-        ...(a.ownershipShare !== undefined ? { ownershipShare: a.ownershipShare } : {}),
-        source: { file: profile.imports.find((i) => i.accountId === a.id)?.file ?? "statements", note: `Balance on ${lastPoint?.date ?? anniversary.gregorian} from statements` },
-      });
-    }
-    return out;
+    return deriveCashAssets({ accounts: profile.accounts, transactions: profile.transactions, imports: profile.imports, date: anniversary.gregorian }).assets;
   }, [anniversary, profile.accounts, profile.transactions, profile.imports]);
+
+  /** R2.2: after a dip, move the anniversary to the Hijri date the hawl restarted. */
+  const adoptRestart = async (restartedOn: string) => {
+    try {
+      const h = await hijriFromGregorian(restartedOn, settings.hijriAdjustmentDays);
+      setProfile((p) => {
+        const next: Profile = { ...p, anniversary: { month: h.month, day: h.day }, hawlStart: restartedOn };
+        delete next.calcYear;
+        return next;
+      });
+    } catch {
+      // Leave the profile unchanged if the date cannot be converted.
+    }
+  };
 
   // --- Calculation ---------------------------------------------------------------
   const prices = pricesOf(profile);
@@ -265,6 +265,7 @@ export default function App() {
     ["statements", `Statements${profile.accounts.length ? ` (${profile.accounts.length})` : ""}`],
     ["assets", `Assets${profile.assets.length + derivedAssets.length ? ` (${profile.assets.length + derivedAssets.length})` : ""}`],
     ["liabilities", `Liabilities${profile.liabilities.length ? ` (${profile.liabilities.length})` : ""}`],
+    ["years", "Past years"],
     ["settings", "Settings"],
   ];
 
@@ -310,6 +311,7 @@ export default function App() {
               onSaveYear={saveYear}
               onTogglePaid={togglePaid}
               onGoTo={setView}
+              onAdoptRestart={(d) => void adoptRestart(d)}
             />
           )}
           {view === "statements" && <StatementsPanel profile={profile} onChange={update} series={series} anniversary={anniversary} nisabValue={nisabValue} windowStart={windowStart} />}
@@ -345,6 +347,7 @@ export default function App() {
               makeItem={(kind, value, id) => ({ ...(value as object), kind, id } as Liability)}
             />
           )}
+          {view === "years" && <YearsPanel profile={profile} settings={settings} prices={prices} current={anniversary} onChange={update} />}
           {view === "settings" && <SettingsPanel profile={profile} onChange={update} onLock={() => void onLock()} />}
         </main>
       </div>

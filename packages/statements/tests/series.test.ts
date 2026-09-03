@@ -63,3 +63,16 @@ test("lowestPoint finds the dip", () => {
   assert.deepEqual(lowestPoint([{ date: "a", total: 5 }, { date: "b", total: 2 }, { date: "c", total: 9 }]), { date: "b", total: 2 });
   assert.equal(lowestPoint([]), null);
 });
+
+test("deriveCashAssets takes each cash account's balance on the date and reports accounts with no history", async () => {
+  const { deriveCashAssets } = await import("../src/index.js");
+  const txns = [tx("chk", "2026-01-02", -10, 990), tx("chk", "2026-01-05", 100, 1090), tx("cc", "2026-01-03", -500, 500)];
+  const r = deriveCashAssets({ accounts: [chk, sav, cc], transactions: txns, imports: [], date: "2026-01-04" });
+  assert.equal(r.assets.length, 1);
+  assert.equal(r.assets[0]!.id, "stmt-chk");
+  assert.equal((r.assets[0] as { amount: number }).amount, 990);
+  assert.deepEqual(r.missing.map((a) => a.id), ["sav"]);
+  const before = deriveCashAssets({ accounts: [chk], transactions: txns, imports: [], date: "2025-12-01" });
+  assert.equal(before.assets.length, 0);
+  assert.equal(before.missing.length, 1);
+});

@@ -16,6 +16,7 @@ export { parseQif, looksLikeQif } from "./qif.js";
 export type { QifResult } from "./qif.js";
 export { itemsToRows, rowsToTable, extractSummary, completeYears, explodeItem } from "./pdf.js";
 export { dedupeIncoming, transactionKeys } from "./dedupe.js";
+export { deriveCashAssets, DERIVED_PREFIX } from "./derive.js";
 export type { PdfTextItem, PdfRow, PdfTableResult, PdfSummary } from "./pdf.js";
 export { buildBalanceSeries, accountBalancePoints, balanceOn, lowestPoint, isCashAccount, addDays } from "./series.js";
 export type { SeriesResult, AccountCoverage, BalancePoint } from "./series.js";
