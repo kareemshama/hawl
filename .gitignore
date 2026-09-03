@@ -4,4 +4,6 @@ target/
 .env
 *.db
 *.sqlite
+*.store
 .DS_Store
+apps/desktop/src-tauri/gen/schemas/

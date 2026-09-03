@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --paper: #f7f5ef;
+  --ink: #1b1f1c;
+
+  --sand-50: #faf9f5;
+  --sand-100: #f1eee5;
+  --sand-200: #e5e0d2;
+  --sand-300: #cfc7b3;
+  --sand-400: #a89d84;
+
+  --moss-50: #eef4ef;
+  --moss-100: #d9e7dc;
+  --moss-200: #b6d1bd;
+  --moss-400: #5f8f6c;
+  --moss-600: #2f6a44;
+  --moss-700: #24523a;
+  --moss-800: #1a3b2a;
+
+  --gold-100: #f7ead0;
+  --gold-400: #d8b35d;
+  --gold-600: #a97f1f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--moss-400);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.num {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.input {
+  @apply w-full rounded-lg border border-sand-300 bg-white px-3 py-2 text-[15px] text-ink placeholder:text-sand-400 focus:border-moss-400;
+  min-height: 44px;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 font-medium transition-colors;
+  min-height: 44px;
+}
+.btn-primary {
+  @apply btn bg-moss-700 text-white hover:bg-moss-800 disabled:opacity-50 disabled:cursor-not-allowed;
+}
+.btn-secondary {
+  @apply btn border border-sand-300 bg-white text-ink hover:bg-sand-100 disabled:opacity-50;
+}
+.btn-ghost {
+  @apply btn text-moss-700 hover:bg-moss-50;
+}
+.card {
+  @apply rounded-2xl border border-sand-200 bg-white p-5;
+}
+.label {
+  @apply block text-sm font-medium text-ink/80 mb-1;
+}
+.help {
+  @apply text-xs text-ink/55 mt-1;
+}
+.rule {
+  @apply inline-block rounded bg-sand-100 px-1.5 py-0.5 text-[11px] font-medium text-ink/70 num;
+}
