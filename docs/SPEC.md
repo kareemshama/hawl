@@ -86,7 +86,11 @@ hawl/
 - Statement parsing: `csv` plus `csv-sniffer` for layout detection, `ofx-rs` for OFX/QFX,
   `qif_parser` for QIF. Parsing runs in Rust so raw statement data never crosses into the webview
   until it is normalized.
-- Storage: `rusqlite` with SQLCipher, same as Thaw. One database per profile.
+- Storage: one encrypted file per profile, `hawl.store`, holding the profile as JSON. XChaCha20-
+  Poly1305 with an Argon2id key derived from the passphrase; a fresh nonce on every save and an
+  atomic rename so a crash never leaves a half-written file. SQLCipher was the original plan but
+  it drags OpenSSL into the Windows build, and the data volume is tiny. SQLite is not ruled out for
+  transaction history in M3 if the statement data outgrows a single document.
 - Spot prices: `reqwest` against a fallback chain (gold-api.com, goldprice.dev, Swissquote public
   feed), cached daily, always overridable by hand. Every result stores the price used.
 - Hijri conversion: ICU4X `icu` crate with the Umm al-Qura calendar, computed in Rust and passed
@@ -164,6 +168,9 @@ hawl/
 | M4 | Hawl tracking | Anniversary snapshot, dip detection, missed-year reconstruction. |
 | M5 | Release | CI builds both platforms, README, first tagged release. |
 | M6 | Scholar review | RULES.md reviewed by at least one qualified scholar; open questions in Part 5 resolved or documented. |
+
+Status on 2026-09-03: M0, M1, and M2 are done. M2 shipped with a browser-preview mode (mock
+backend when the UI runs outside Tauri) so the interface can be driven by headless QA tools.
 
 M1 before M2 on purpose. The engine is the part that has to be right, and it is the part a
 reviewer and a scholar can check without a UI.
