@@ -23,9 +23,12 @@ interface Props<K extends string, T extends Item> {
   figureWord: string;
   onChange: (items: T[]) => void;
   makeItem: (kind: K, value: Record<string, unknown>, id: string) => T;
+  /** Items shown but not editable here, such as balances derived from statements. */
+  readOnlyItems?: T[];
+  readOnlyBadge?: string;
 }
 
-export default function ItemsPanel<K extends string, T extends Item>({ title, intro, emptyText, items, kinds, fieldsFor, currency, traces, figureWord, onChange, makeItem }: Props<K, T>) {
+export default function ItemsPanel<K extends string, T extends Item>({ title, intro, emptyText, items, kinds, fieldsFor, currency, traces, figureWord, onChange, makeItem, readOnlyItems = [], readOnlyBadge = "derived" }: Props<K, T>) {
   const [editing, setEditing] = useState<"new" | string | null>(null);
   const kindLabel = (k: string) => kinds.find((x) => x.value === k)?.label ?? k;
 
@@ -40,7 +43,7 @@ export default function ItemsPanel<K extends string, T extends Item>({ title, in
 
   const remove = (id: string) => onChange(items.filter((it) => it.id !== id));
 
-  const total = items.reduce((s, it) => s + (traces.get(it.id)?.zakatable ?? 0), 0);
+  const total = [...readOnlyItems, ...items].reduce((s, it) => s + (traces.get(it.id)?.zakatable ?? 0), 0);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -60,11 +63,32 @@ export default function ItemsPanel<K extends string, T extends Item>({ title, in
         </div>
       )}
 
-      {items.length === 0 && editing === null && (
+      {items.length === 0 && readOnlyItems.length === 0 && editing === null && (
         <div className="card text-center text-ink/60">{emptyText}</div>
       )}
 
       <ul className="space-y-3">
+        {readOnlyItems.map((it) => {
+          const t = traces.get(it.id);
+          return (
+            <li key={it.id} className="card flex items-center gap-4 bg-sand-50 py-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="truncate font-medium">{it.label}</span>
+                  <span className="rounded bg-moss-100 px-1.5 py-0.5 text-[11px] font-medium text-moss-800">{readOnlyBadge}</span>
+                  {t?.rules.map((r) => (
+                    <span key={r} className="rule">{r}</span>
+                  ))}
+                </div>
+                {t?.source?.note && <div className="mt-1 text-sm text-ink/60">{t.source.note}</div>}
+              </div>
+              <div className="text-right">
+                {t && <div className="num font-semibold">{money(t.zakatable, currency)}</div>}
+                <div className="text-xs text-ink/50">{figureWord}</div>
+              </div>
+            </li>
+          );
+        })}
         {items.map((it) => {
           const t = traces.get(it.id);
           if (editing === it.id) {

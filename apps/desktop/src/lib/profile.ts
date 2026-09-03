@@ -1,4 +1,4 @@
-import type { Asset, CalculationResult, Liability, Madhab, MetalPrices, Payer, Settings } from "@hawl/core-types";
+import type { Asset, CalculationResult, Liability, Madhab, MetalPrices, Payer, Settings, StatementAccount, StatementImport, Transaction } from "@hawl/core-types";
 import { resolveSettings } from "@hawl/zakat-engine";
 
 export interface HijriAnniversary {
@@ -19,7 +19,7 @@ export interface SavedYear {
 }
 
 export interface Profile {
-  version: 1;
+  version: 2;
   setupComplete: boolean;
   currency: string;
   madhab: Madhab;
@@ -35,11 +35,15 @@ export interface Profile {
   manualPrices: MetalPrices | null;
   cachedPrices: MetalPrices | null;
   history: SavedYear[];
+  /** Statement import (M3). */
+  accounts: StatementAccount[];
+  transactions: Transaction[];
+  imports: StatementImport[];
 }
 
 export function emptyProfile(): Profile {
   return {
-    version: 1,
+    version: 2,
     setupComplete: false,
     currency: "USD",
     madhab: "hanafi",
@@ -51,6 +55,9 @@ export function emptyProfile(): Profile {
     manualPrices: null,
     cachedPrices: null,
     history: [],
+    accounts: [],
+    transactions: [],
+    imports: [],
   };
 }
 
@@ -62,7 +69,7 @@ export function normalizeProfile(raw: unknown): Profile {
   return {
     ...base,
     ...p,
-    version: 1,
+    version: 2,
     overrides: p.overrides ?? {},
     anniversary: p.anniversary ?? base.anniversary,
     payer: p.payer ?? {},
@@ -71,6 +78,9 @@ export function normalizeProfile(raw: unknown): Profile {
     history: Array.isArray(p.history) ? p.history : [],
     manualPrices: p.manualPrices ?? null,
     cachedPrices: p.cachedPrices ?? null,
+    accounts: Array.isArray(p.accounts) ? p.accounts : [],
+    transactions: Array.isArray(p.transactions) ? p.transactions : [],
+    imports: Array.isArray(p.imports) ? p.imports : [],
   };
 }
 
@@ -104,3 +114,6 @@ export const CURRENCIES = [
 export function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
+
+/** Id prefix for cash assets derived from statement accounts, so they can be told apart from manual ones. */
+export const DERIVED_PREFIX = "stmt-";

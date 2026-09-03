@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Asset, CalculationResult, Liability, Trace } from "@hawl/core-types";
-import { calculateZakat } from "@hawl/zakat-engine";
+import { calculateZakat, computeNisab, yearLengthFor } from "@hawl/zakat-engine";
+import { addDays, balanceOn, accountBalancePoints, buildBalanceSeries, isCashAccount, type SeriesResult } from "@hawl/statements";
 import {
   fetchPrices,
   hijriPreviousOccurrence,
@@ -14,16 +15,17 @@ import {
   type HijriDate,
 } from "./lib/commands";
 import { ASSET_FIELDS, ASSET_KINDS, LIABILITY_FIELDS, LIABILITY_KINDS } from "./lib/forms";
-import { emptyProfile, normalizeProfile, pricesOf, settingsOf, type Profile } from "./lib/profile";
+import { DERIVED_PREFIX, emptyProfile, normalizeProfile, pricesOf, settingsOf, type Profile } from "./lib/profile";
 import ItemsPanel from "./components/ItemsPanel";
 import ResultPanel from "./components/ResultPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import SetupWizard from "./components/SetupWizard";
+import StatementsPanel from "./components/StatementsPanel";
 import TitleBar from "./components/TitleBar";
 import UnlockScreen, { Crescent } from "./components/UnlockScreen";
 
 type Screen = "loading" | "create" | "unlock" | "setup" | "main";
-type View = "overview" | "assets" | "liabilities" | "settings";
+export type View = "overview" | "statements" | "assets" | "liabilities" | "settings";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
@@ -138,8 +140,50 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, profile.currency, profile.manualPrices]);
 
+  // --- Statements: balance series and derived cash assets -------------------------
+  const windowStart = useMemo(() => {
+    if (!anniversary) return null;
+    return profile.hawlStart ?? addDays(anniversary.gregorian, -yearLengthFor(settings));
+  }, [anniversary, profile.hawlStart, settings]);
+
+  const series = useMemo<SeriesResult | null>(() => {
+    if (!anniversary || !windowStart || profile.accounts.length === 0) return null;
+    return buildBalanceSeries({ accounts: profile.accounts, transactions: profile.transactions, imports: profile.imports, from: windowStart, to: anniversary.gregorian });
+  }, [anniversary, windowStart, profile.accounts, profile.transactions, profile.imports]);
+
+  /** Cash assets taken from statement accounts on the anniversary (R4.1, R15.1). */
+  const derivedAssets = useMemo<Asset[]>(() => {
+    if (!anniversary) return [];
+    const out: Asset[] = [];
+    for (const a of profile.accounts) {
+      if (!isCashAccount(a)) continue;
+      const { points } = accountBalancePoints(a, profile.transactions, profile.imports);
+      const bal = balanceOn(points, anniversary.gregorian);
+      if (bal === null) continue;
+      const lastPoint = [...points].reverse().find((p) => p.date <= anniversary.gregorian);
+      out.push({
+        kind: "cash",
+        id: `${DERIVED_PREFIX}${a.id}`,
+        label: a.name,
+        amount: Math.max(0, bal),
+        ...(a.ownershipShare !== undefined ? { ownershipShare: a.ownershipShare } : {}),
+        source: { file: profile.imports.find((i) => i.accountId === a.id)?.file ?? "statements", note: `Balance on ${lastPoint?.date ?? anniversary.gregorian} from statements` },
+      });
+    }
+    return out;
+  }, [anniversary, profile.accounts, profile.transactions, profile.imports]);
+
   // --- Calculation ---------------------------------------------------------------
   const prices = pricesOf(profile);
+  const nisabValue = useMemo(() => {
+    if (!prices) return null;
+    try {
+      return computeNisab(settings, prices).value;
+    } catch {
+      return null;
+    }
+  }, [settings, prices]);
+
   const { result, error } = useMemo<{ result: CalculationResult | null; error: string | null }>(() => {
     if (!prices || !anniversary) return { result: null, error: null };
     try {
@@ -147,16 +191,17 @@ export default function App() {
         settings,
         anniversary: { gregorian: anniversary.gregorian, hijri: `${anniversary.label} AH` },
         prices,
-        assets: profile.assets,
+        assets: [...derivedAssets, ...profile.assets],
         liabilities: profile.liabilities,
         payer: profile.payer,
         ...(profile.hawlStart ? { hawlStart: profile.hawlStart } : {}),
+        ...(series && series.series.length > 0 ? { balanceSeries: series.series } : {}),
       };
       return { result: calculateZakat(input), error: null };
     } catch (e) {
       return { result: null, error: String(e) };
     }
-  }, [prices, anniversary, settings, profile.assets, profile.liabilities, profile.payer, profile.hawlStart]);
+  }, [prices, anniversary, settings, derivedAssets, profile.assets, profile.liabilities, profile.payer, profile.hawlStart, series]);
 
   const traceMap = useMemo(() => {
     const m = new Map<string, Trace>();
@@ -215,6 +260,14 @@ export default function App() {
     );
   }
 
+  const navItems: [View, string][] = [
+    ["overview", "Overview"],
+    ["statements", `Statements${profile.accounts.length ? ` (${profile.accounts.length})` : ""}`],
+    ["assets", `Assets${profile.assets.length + derivedAssets.length ? ` (${profile.assets.length + derivedAssets.length})` : ""}`],
+    ["liabilities", `Liabilities${profile.liabilities.length ? ` (${profile.liabilities.length})` : ""}`],
+    ["settings", "Settings"],
+  ];
+
   return (
     <Shell
       right={
@@ -231,14 +284,7 @@ export default function App() {
             <Crescent size={28} />
             <span className="font-semibold">Hawl</span>
           </div>
-          {(
-            [
-              ["overview", "Overview"],
-              ["assets", `Assets${profile.assets.length ? ` (${profile.assets.length})` : ""}`],
-              ["liabilities", `Liabilities${profile.liabilities.length ? ` (${profile.liabilities.length})` : ""}`],
-              ["settings", "Settings"],
-            ] as [View, string][]
-          ).map(([v, label]) => (
+          {navItems.map(([v, label]) => (
             <button key={v} onClick={() => setView(v)} className={`rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${view === v ? "bg-moss-700 text-white" : "text-ink/80 hover:bg-sand-200"}`}>
               {label}
             </button>
@@ -266,12 +312,15 @@ export default function App() {
               onGoTo={setView}
             />
           )}
+          {view === "statements" && <StatementsPanel profile={profile} onChange={update} series={series} anniversary={anniversary} nisabValue={nisabValue} windowStart={windowStart} />}
           {view === "assets" && (
             <ItemsPanel<Asset["kind"], Asset>
               title="Assets"
-              intro="Everything you own that zakat can apply to, valued on the anniversary date. Statement import arrives in the next milestone; for now enter balances by hand."
-              emptyText="No assets yet. Start with your bank balances."
+              intro="Everything you own that zakat can apply to, valued on the anniversary date. Bank balances from imported statements appear automatically; add anything else by hand."
+              emptyText="No assets yet. Import a statement or add a balance by hand."
               items={profile.assets}
+              readOnlyItems={derivedAssets}
+              readOnlyBadge="from statements"
               kinds={ASSET_KINDS}
               fieldsFor={(k) => ASSET_FIELDS[k]}
               currency={profile.currency}

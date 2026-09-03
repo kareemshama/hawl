@@ -231,6 +231,75 @@ export interface UnpaidZakat extends LiabilityBase {
 export type Liability = ImmediateDebt | CreditCardDebt | LongTermLoan | UpcomingBill | UnpaidZakat;
 
 // ---------------------------------------------------------------------------
+// Statements (SPEC.md section 9)
+// ---------------------------------------------------------------------------
+
+export type StatementFormat = "csv" | "ofx" | "qif" | "pdf";
+export type AccountKind = "checking" | "savings" | "credit-card" | "brokerage" | "other";
+/** How day and month are ordered in a numeric date such as 03/04/2026. */
+export type DateOrder = "ymd" | "mdy" | "dmy";
+export type Confidence = "high" | "medium" | "low";
+
+/** Column indexes into a parsed table. `amount` is a signed column; `debit`/`credit` are unsigned pairs. */
+export interface ColumnMapping {
+  date: number;
+  description: number;
+  amount?: number;
+  debit?: number;
+  credit?: number;
+  balance?: number;
+  dateOrder: DateOrder;
+  hasHeader: boolean;
+}
+
+export interface StatementAccount {
+  id: string;
+  name: string;
+  institution?: string;
+  kind: AccountKind;
+  currency: string;
+  /** R6.3 */
+  ownershipShare?: number;
+  /** Remembered column mapping for this bank's CSV or PDF layout. */
+  mapping?: ColumnMapping;
+}
+
+export interface TransactionSource {
+  file: string;
+  line?: number;
+  page?: number;
+  confidence: Confidence;
+}
+
+export interface Transaction {
+  id: string;
+  accountId: string;
+  date: IsoDate;
+  /** Signed: positive is money in, negative is money out. */
+  amount: number;
+  description: string;
+  /** Running balance after this transaction when the statement provides one. */
+  balanceAfter?: number;
+  source: TransactionSource;
+}
+
+export interface StatementImport {
+  id: string;
+  accountId: string;
+  file: string;
+  format: StatementFormat;
+  importedAt: string;
+  periodStart?: IsoDate;
+  periodEnd?: IsoDate;
+  openingBalance?: number;
+  closingBalance?: number;
+  transactionCount: number;
+  /** True when every consecutive running balance matched the amounts (R15.7). */
+  balanceVerified: boolean;
+  notes: string[];
+}
+
+// ---------------------------------------------------------------------------
 // Calculation input and output
 // ---------------------------------------------------------------------------
 
