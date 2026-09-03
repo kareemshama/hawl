@@ -133,16 +133,29 @@ export function applyMapping(review: Review, mapping: ColumnMapping): Review {
   return { ...review, mapping, transactions: r.transactions, balanceVerified: r.balanceVerified, warnings };
 }
 
-/** Fingerprint used to skip transactions that were already imported from another file. */
-function fingerprint(t: Transaction): string {
-  return `${t.accountId}|${t.date}|${t.amount}|${t.description.toLowerCase()}|${t.balanceAfter ?? ""}`;
+/**
+ * Fingerprints used to skip transactions already imported from another file. The same
+ * transaction can carry a different description in a PDF than in a CSV (continuation lines,
+ * truncation), so when a running balance exists the date, amount, and balance identify it.
+ * Without a balance the normalized description is part of the key.
+ */
+function fingerprints(t: Transaction): string[] {
+  const keys = [`${t.accountId}|${t.date}|${t.amount}|d:${t.description.toLowerCase().replace(/\s+/g, " ").slice(0, 24)}`];
+  if (t.balanceAfter !== undefined) keys.push(`${t.accountId}|${t.date}|${t.amount}|b:${t.balanceAfter}`);
+  return keys;
 }
 
 /** Commit a reviewed import into the profile under the chosen account. Returns the new profile and the count added. */
 export function commitImport(profile: Profile, review: Review, accountId: string, rememberMapping: boolean): { profile: Profile; added: number; skipped: number } {
-  const existing = new Set(profile.transactions.map(fingerprint));
+  const existing = new Set(profile.transactions.flatMap(fingerprints));
   const incoming = review.transactions.map((t) => ({ ...t, id: t.id.replace(TEMP_ACCOUNT, accountId), accountId }));
-  const fresh = incoming.filter((t) => !existing.has(fingerprint(t)));
+  const fresh: Transaction[] = [];
+  for (const t of incoming) {
+    const keys = fingerprints(t);
+    if (keys.some((k) => existing.has(k))) continue;
+    keys.forEach((k) => existing.add(k));
+    fresh.push(t);
+  }
   const dates = incoming.map((t) => t.date).sort();
 
   const imp: StatementImport = {

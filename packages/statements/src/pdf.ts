@@ -25,8 +25,53 @@ export interface PdfRow {
   text: string;
 }
 
-/** Group text items into visual rows by page and baseline. */
-export function itemsToRows(items: PdfTextItem[], tolerance = 3): PdfRow[] {
+const MONEY_TOKEN = /^[-−(]?[$£€]?[\d,]+\.\d{2}\)?(CR|DR)?-?$/i;
+const DATE_TOKEN = /^(\d{1,2}[\/.-]\d{1,2}([\/.-]\d{2,4})?|\d{4}-\d{2}-\d{2}|\d{1,2}-[A-Za-z]{3}-\d{2,4})$/;
+
+/**
+ * pdf.js often merges a whole visual row into one text item ("01/05 PAYROLL 2,500.00 5,000.00").
+ * Split such items into tokens with estimated x positions so columns can still be recovered.
+ * Dates and money stay separate tokens; runs of other words are kept together as one token.
+ */
+export function explodeItems(items: PdfTextItem[]): PdfTextItem[] {
+  const out: PdfTextItem[] = [];
+  for (const it of items) {
+    const s = it.str;
+    const words = s.split(/\s+/).filter((w) => w !== "");
+    if (words.length <= 1) {
+      out.push(it);
+      continue;
+    }
+    const charWidth = s.length > 0 ? it.width / s.length : 0;
+    let cursor = 0;
+    let run: { start: number; text: string } | null = null;
+    const flush = () => {
+      if (run) {
+        out.push({ page: it.page, x: it.x + run.start * charWidth, y: it.y, width: run.text.length * charWidth, str: run.text });
+        run = null;
+      }
+    };
+    for (const w of words) {
+      const start = s.indexOf(w, cursor);
+      cursor = start + w.length;
+      const special = MONEY_TOKEN.test(w) || DATE_TOKEN.test(w);
+      if (special) {
+        flush();
+        out.push({ page: it.page, x: it.x + start * charWidth, y: it.y, width: w.length * charWidth, str: w });
+      } else if (run) {
+        run.text = `${run.text} ${w}`;
+      } else {
+        run = { start, text: w };
+      }
+    }
+    flush();
+  }
+  return out;
+}
+
+/** Group text items into visual rows by page and baseline. Merged items are split first. */
+export function itemsToRows(rawItems: PdfTextItem[], tolerance = 3): PdfRow[] {
+  const items = explodeItems(rawItems);
   const rows: PdfRow[] = [];
   const sorted = [...items].filter((i) => i.str.trim() !== "").sort((a, b) => a.page - b.page || b.y - a.y || a.x - b.x);
   for (const it of sorted) {
@@ -44,7 +89,7 @@ export function itemsToRows(items: PdfTextItem[], tolerance = 3): PdfRow[] {
   return rows;
 }
 
-const HEADER_HINT = /\b(date|description|details|withdrawals?|deposits?|debits?|credits?|amount|balance|money (in|out)|paid (in|out))\b/i;
+const HEADER_HINT = /\b(?:date|description|details|withdrawals?|deposits?|debits?|credits?|amount|balance|money (?:in|out)|paid (?:in|out))\b/gi;
 const IGNORE_ROW = /^(page \d+|continued|statement of account|beginning balance|ending balance|total|totals|daily balance|subtotal)/i;
 
 export interface PdfTableResult {
@@ -65,16 +110,26 @@ export function rowsToTable(rows: PdfRow[]): PdfTableResult {
   const notes: string[] = [];
 
   // Header detection: a row with at least two header hints. Remember x centers of numeric labels.
-  const header = rows.find((r) => (r.text.match(HEADER_HINT) ?? []).length >= 2 && !looksLikeDate(r.items[0]?.str ?? ""));
+  // A column header names at least two columns, carries no money values, and does not start with a date.
+  // Summary lines like "Deposits and other credits 4,200.00" fail the money test.
+  const header = rows.find((r) => (r.text.match(HEADER_HINT) ?? []).length >= 2 && !looksLikeDate(r.items[0]?.str ?? "") && !r.items.some((i) => looksLikeMoney(i.str)));
   type Col = { label: string; x: number };
   const numericCols: Col[] = [];
   if (header) {
+    // Header words may sit inside one merged item; split every item into words with estimated x.
     for (const it of header.items) {
-      const s = it.str.trim();
-      if (/^(withdrawals?|debits?|money out|paid out|payments?)$/i.test(s)) numericCols.push({ label: "debit", x: it.x + it.width / 2 });
-      else if (/^(deposits?|credits?|money in|paid in|receipts?)$/i.test(s)) numericCols.push({ label: "credit", x: it.x + it.width / 2 });
-      else if (/^amount$/i.test(s)) numericCols.push({ label: "amount", x: it.x + it.width / 2 });
-      else if (/balance/i.test(s)) numericCols.push({ label: "balance", x: it.x + it.width / 2 });
+      const words = it.str.trim().split(/\s+/);
+      const charWidth = it.str.length > 0 ? it.width / it.str.length : 0;
+      let cursor = 0;
+      for (const w of words) {
+        const start = it.str.indexOf(w, cursor);
+        cursor = start + w.length;
+        const cx = it.x + (start + w.length / 2) * charWidth;
+        if (/^(withdrawals?|debits?|payments?|out)$/i.test(w)) numericCols.push({ label: "debit", x: cx });
+        else if (/^(deposits?|credits?|receipts?|in)$/i.test(w)) numericCols.push({ label: "credit", x: cx });
+        else if (/^amount$/i.test(w)) numericCols.push({ label: "amount", x: cx });
+        else if (/^balance$/i.test(w)) numericCols.push({ label: "balance", x: cx });
+      }
     }
     if (numericCols.length > 0) notes.push(`Header found on page ${header.page}: ${numericCols.map((c) => c.label).join(", ")}.`);
   }

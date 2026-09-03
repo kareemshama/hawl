@@ -18,6 +18,11 @@ test("itemsToRows groups by baseline within tolerance and orders left to right",
 
 test("rowsToTable with a labelled header assigns numbers to debit, credit, balance by x position", () => {
   const items: PdfTextItem[] = [
+    // Summary block above the table must not be mistaken for the column header.
+    ...row(1, 780, [[50, "Beginning Balance"], [300, "$2,620.00"]]),
+    ...row(1, 766, [[50, "Deposits and other credits"], [300, "2,500.00"]]),
+    ...row(1, 752, [[50, "Withdrawals and other debits"], [300, "(165.20)"]]),
+    ...row(1, 738, [[50, "Ending Balance"], [300, "$4,954.80"]]),
     ...row(1, 720, [[50, "Date"], [120, "Description"], [380, "Withdrawals"], [460, "Deposits"], [540, "Balance"]]),
     ...row(1, 700, [[50, "01/03"], [120, "COSTCO WHSE #123"], [385, "120.00"], [545, "2,500.00"]]),
     ...row(1, 680, [[50, "01/05"], [120, "PAYROLL ACME CORP"], [462, "2,500.00"], [545, "5,000.00"]]),
@@ -90,4 +95,23 @@ test("extractSummary handles UK wording", () => {
   assert.equal(s.closingBalance, 2267.9);
   assert.equal(s.periodStart, "2026-01-05");
   assert.equal(s.periodEnd, "2026-02-04");
+});
+
+test("rows merged into one text item by pdf.js are split back into columns", () => {
+  const items: PdfTextItem[] = [
+    { page: 1, x: 50, y: 584, width: 500, str: "Date Description Withdrawals Deposits Balance" },
+    { page: 1, x: 50, y: 568, width: 540, str: "01/01 PAYROLL ACME CORP DIRECT DEP 4,200.00 16,196.63" },
+    { page: 1, x: 50, y: 554, width: 540, str: "01/03 RENT PAYMENT OAKWOOD PROPERTIES 1,850.00 14,346.63" },
+    { page: 1, x: 110, y: 540, width: 200, str: "REF 000088 ONLINE PAYMENT" },
+    { page: 1, x: 50, y: 526, width: 540, str: "01/07 COSTCO WHSE #0412 96.20 14,250.43" },
+  ];
+  const { table } = rowsToTable(itemsToRows(items));
+  assert.equal(table.rows.length, 3);
+  assert.equal(table.rows[0]![0], "01/01");
+  assert.equal(table.rows[0]![1], "PAYROLL ACME CORP DIRECT DEP");
+  assert.match(table.rows[1]![1]!, /REF 000088 ONLINE PAYMENT$/);
+  completeYears(table, 0, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
+  const r = tableToTransactions(table, detectMapping(table, "mdy").mapping!, { accountId: "a", file: "s.pdf", openingBalance: 11996.63 });
+  assert.deepEqual(r.transactions.map((t) => t.amount), [4200, -1850, -96.2]);
+  assert.equal(r.balanceVerified, true);
 });
