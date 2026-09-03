@@ -46,6 +46,11 @@ export interface Settings {
   /** R9.2: percent of market value treated as zakatable for long-term stock holdings. */
   stockProxyPercent: number;
   minorsRule: MinorsRule;
+  /**
+   * R2.6: days to shift the Umm al-Qura conversion to match local moonsighting.
+   * Consumed by the date layer, not by the arithmetic here; carried so a saved Snapshot is complete.
+   */
+  hijriAdjustmentDays: -1 | 0 | 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -289,12 +294,21 @@ export interface NisabResult {
 export interface HawlStatus {
   rule: HawlDipRule;
   complete: boolean;
+  /** First day of the window examined: hawlStart, or one zakat year before the anniversary. */
+  windowStart: IsoDate;
+  /** Day the current (possibly restarted) hawl began. Equals restartedOn when a dip occurred. */
+  effectiveStart: IsoDate;
   checkedDays: number;
+  /** Number of separate dips below nisab found under the continuous rule. */
+  dipCount: number;
   lowestTotal?: number;
   lowestOn?: IsoDate;
   brokenOn?: IsoDate;
   restartedOn?: IsoDate;
-  /** Gregorian estimate, restart date plus one lunar year. The caller converts it to Hijri. */
+  /**
+   * Gregorian estimate of when zakat falls (or fell) due after a restart: restart date plus one
+   * zakat year. The caller converts it to Hijri.
+   */
   proposedAnniversary?: IsoDate;
   estimated: boolean;
   note: string;

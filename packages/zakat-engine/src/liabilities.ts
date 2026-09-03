@@ -1,5 +1,5 @@
 import type { IsoDate, Liability, Settings, Trace } from "@hawl/core-types";
-import { daysBetween, round2 } from "./util.js";
+import { assertNever, daysBetween, round2 } from "./util.js";
 
 interface Ctx {
   settings: Settings;
@@ -42,26 +42,33 @@ export function valueLiability(liability: Liability, ctx: Ctx): Trace {
     }
 
     case "upcoming-bill": {
+      // A bill whose due date has arrived is already due, so R5.4 applies regardless of the R5.5 toggle.
+      if (liability.dueDate !== undefined) {
+        const days = daysBetween(ctx.anniversary, liability.dueDate);
+        if (days <= 0) {
+          return finish(liability.amount, liability.amount, ["R5.4"], { note: days === 0 ? "Due on the anniversary." : `Already due ${-days} days before the anniversary.` });
+        }
+        if (ctx.settings.upcomingBillsRule === "not-deductible") {
+          return finish(liability.amount, 0, ["R5.5"], { note: "Not yet due, so not deductible under the selected position." });
+        }
+        if (days <= 30) {
+          return finish(liability.amount, liability.amount, ["R5.5"], { note: `Due ${days} days after the anniversary.` });
+        }
+        return finish(liability.amount, 0, ["R5.5"], { note: "Due more than 30 days out." });
+      }
       if (ctx.settings.upcomingBillsRule === "not-deductible") {
         return finish(liability.amount, 0, ["R5.5"], { note: "Not yet due, so not deductible under the selected position." });
       }
-      if (liability.dueDate === undefined) {
-        ctx.warnings.push(`${liability.label}: no due date given; treated as due within the current month.`);
-        return finish(liability.amount, liability.amount, ["R5.5"], { note: "Assumed due within the current month.", estimated: true });
-      }
-      const days = daysBetween(ctx.anniversary, liability.dueDate);
-      if (days >= 0 && days <= 30) {
-        return finish(liability.amount, liability.amount, ["R5.5"], { note: `Due ${days} days after the anniversary.` });
-      }
-      return finish(liability.amount, 0, ["R5.5"], { note: days < 0 ? "Already past due; record it as an immediate debt instead." : "Due more than 30 days out." });
+      ctx.warnings.push(`${liability.label}: no due date given; treated as due within the current month.`);
+      return finish(liability.amount, liability.amount, ["R5.5"], { note: "Assumed due within the current month.", estimated: true });
     }
 
     case "unpaid-zakat":
       return finish(liability.amount, liability.amount, ["R5.6", "R7.3"], {
         ...(liability.forYear ? { note: `Unpaid zakat for ${liability.forYear}.` } : {}),
       });
-  }
 
-  const unreachable: never = liability;
-  throw new Error(`Unhandled liability: ${JSON.stringify(unreachable)}`);
+    default:
+      return assertNever(liability, "liability");
+  }
 }

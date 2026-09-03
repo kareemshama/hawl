@@ -3,7 +3,7 @@ import { evaluateHawl } from "./hawl.js";
 import { valueLiability } from "./liabilities.js";
 import { computeNisab, nisabTrace, rateFor, rateTrace } from "./nisab.js";
 import { valueAsset } from "./valuation.js";
-import { round2 } from "./util.js";
+import { assertFinite, metalPrice, round2 } from "./util.js";
 
 /**
  * The main entry point. Pure and deterministic (R14.2).
@@ -16,6 +16,10 @@ export function calculateZakat(input: CalculationInput): CalculationResult {
   const warnings: string[] = [];
   const traces: Trace[] = [];
 
+  // Both prices must be valid even if only one drives nisab; the other values metal assets (R1.4).
+  metalPrice(prices, "gold");
+  metalPrice(prices, "silver");
+
   // Nisab and rate (R1, R3)
   const nisab = computeNisab(settings, prices);
   traces.push(nisabTrace(nisab, prices));
@@ -23,9 +27,9 @@ export function calculateZakat(input: CalculationInput): CalculationResult {
   traces.push(rateTrace(settings));
 
   // Payer (R6)
-  const payerExempt =
-    settings.minorsRule === "exempt" && (input.payer?.isMinor === true || input.payer?.lacksCapacity === true);
-  if (input.payer?.isMinor || input.payer?.lacksCapacity) {
+  const payerFlagged = input.payer?.isMinor === true || input.payer?.lacksCapacity === true;
+  const payerExempt = payerFlagged && settings.minorsRule === "exempt";
+  if (payerFlagged) {
     traces.push({
       id: "payer",
       label: payerExempt ? "Payer not personally liable" : "Payer's wealth liable via guardian",
@@ -39,33 +43,54 @@ export function calculateZakat(input: CalculationInput): CalculationResult {
     });
   }
 
-  // Assets (R4, R8 to R13)
+  // Assets (R4, R8 to R13). Traces are zipped with inputs by index, never by id.
   const assetCtx = { settings, prices, warnings };
   const assetTraces = input.assets.map((a) => valueAsset(a, assetCtx));
   traces.push(...assetTraces);
+  for (const t of assetTraces) assertFinite(t.zakatable, `Asset "${t.label}" value`);
   let zakatableAssets = assetTraces.reduce((s, t) => s + t.zakatable, 0);
 
-  // R2.3 separate-hawl rule: only cash held for the whole year has completed its own hawl.
-  // The lowest total across the hawl is the standard practical proxy for that amount (R15.2).
-  if (settings.newIncomeRule === "separate" && input.balanceSeries && input.balanceSeries.length > 0) {
-    const cashTotal = assetTraces
-      .filter((t) => input.assets.find((a) => a.id === t.id)?.kind === "cash")
-      .reduce((s, t) => s + t.zakatable, 0);
-    const window = input.balanceSeries.filter(
-      (d) => d.date <= input.anniversary.gregorian && (input.hawlStart === undefined || d.date >= input.hawlStart),
-    );
-    if (window.length > 0 && cashTotal > 0) {
-      const lowest = Math.min(...window.map((d) => d.total));
-      if (lowest < cashTotal) {
-        const reduction = round2(cashTotal - Math.max(0, lowest));
+  let cashRaw = 0;
+  let cashZakatable = 0;
+  input.assets.forEach((a, i) => {
+    if (a.kind === "cash") {
+      cashRaw += a.amount;
+      cashZakatable += assetTraces[i]!.zakatable;
+    }
+  });
+  const nonCashZakatable = round2(zakatableAssets - cashZakatable);
+
+  // Hawl (R2). Runs before the separate-income cap so the cap can respect a restarted hawl.
+  const hawl = evaluateHawl({
+    settings,
+    nisabValue: nisab.value,
+    anniversary: input.anniversary.gregorian,
+    hawlStart: input.hawlStart,
+    series: input.balanceSeries,
+    nonCashZakatable,
+  });
+  if (nonCashZakatable > 0 && hawl.checkedDays > 0 && settings.hawlDipRule === "continuous") {
+    warnings.push("The dip test added non-cash assets at their anniversary value to each day's cash balance; their history is not known.");
+  }
+
+  // R2.3 separate-hawl rule: only cash held since the (possibly restarted) hawl began has completed
+  // its own hawl. The lowest raw balance in that window is the standard practical proxy (R15.2).
+  // The reduction is applied proportionally so ownership shares are respected.
+  if (settings.newIncomeRule === "separate" && input.balanceSeries && cashRaw > 0) {
+    const window = input.balanceSeries.filter((d) => d.date >= hawl.effectiveStart && d.date <= input.anniversary.gregorian);
+    if (window.length > 0) {
+      const lowestRaw = Math.max(0, Math.min(...window.map((d) => d.total)));
+      if (lowestRaw < cashRaw) {
+        const fraction = (cashRaw - lowestRaw) / cashRaw;
+        const reduction = round2(cashZakatable * fraction);
         traces.push({
           id: "new-income-adjustment",
           label: "Cash acquired during the year (separate hawl)",
           category: "adjustment",
-          input: cashTotal,
+          input: round2(cashZakatable),
           zakatable: -reduction,
           rules: ["R2.3", "R15.2"],
-          note: `Lowest cash total during the hawl was ${round2(Math.max(0, lowest))}; the excess has not completed its own hawl.`,
+          note: `Lowest cash total since ${hawl.effectiveStart} was ${round2(lowestRaw)} of ${round2(cashRaw)}; the ${Math.round(fraction * 1000) / 10} percent above it has not completed its own hawl.`,
           estimated: true,
         });
         zakatableAssets -= reduction;
@@ -78,19 +103,12 @@ export function calculateZakat(input: CalculationInput): CalculationResult {
   const liabilityCtx = { settings, anniversary: input.anniversary.gregorian, warnings };
   const liabilityTraces = input.liabilities.map((l) => valueLiability(l, liabilityCtx));
   traces.push(...liabilityTraces);
-  const deductibleLiabilities = liabilityTraces.reduce((s, t) => s + t.zakatable, 0);
+  for (const t of liabilityTraces) assertFinite(t.zakatable, `Liability "${t.label}" value`);
+  const deductibleLiabilities = round2(liabilityTraces.reduce((s, t) => s + t.zakatable, 0));
 
-  const net = round2(zakatableAssets - deductibleLiabilities);
   zakatableAssets = round2(zakatableAssets);
+  const net = assertFinite(round2(zakatableAssets - deductibleLiabilities), "Net zakatable wealth");
 
-  // Hawl (R2)
-  const hawl = evaluateHawl({
-    settings,
-    nisabValue: nisab.value,
-    anniversary: input.anniversary.gregorian,
-    hawlStart: input.hawlStart,
-    series: input.balanceSeries,
-  });
   traces.push({
     id: "hawl",
     label: hawl.complete ? "Hawl complete" : "Hawl not complete",
@@ -105,8 +123,8 @@ export function calculateZakat(input: CalculationInput): CalculationResult {
   // Verdict
   let verdict: Verdict;
   if (payerExempt) verdict = "not-liable";
-  else if (net < nisab.value) verdict = "exempt";
   else if (!hawl.complete) verdict = "hawl-not-complete";
+  else if (net < nisab.value) verdict = "exempt";
   else verdict = "due";
 
   const zakatDue = verdict === "due" ? round2(net * rate) : 0;
@@ -124,7 +142,7 @@ export function calculateZakat(input: CalculationInput): CalculationResult {
   return {
     verdict,
     nisab,
-    totals: { zakatableAssets, deductibleLiabilities: round2(deductibleLiabilities), netZakatableWealth: net },
+    totals: { zakatableAssets, deductibleLiabilities, netZakatableWealth: net },
     rate,
     zakatDue,
     hawl,

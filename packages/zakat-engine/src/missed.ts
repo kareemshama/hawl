@@ -1,5 +1,6 @@
 import type { CalculationInput, CalculationResult, UnpaidZakat } from "@hawl/core-types";
 import { calculateZakat } from "./calculate.js";
+import { round2 } from "./util.js";
 
 export interface MissedYearsResult {
   years: CalculationResult[];
@@ -35,6 +36,5 @@ export function calculateMissedYears(
     }
   });
 
-  const totalOwed = Math.round(carried.reduce((s, c) => s + c.amount, 0) * 100) / 100;
-  return { years, totalOwed };
+  return { years, totalOwed: round2(carried.reduce((s, c) => s + c.amount, 0)) };
 }

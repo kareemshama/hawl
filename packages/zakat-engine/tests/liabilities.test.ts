@@ -46,7 +46,8 @@ test("R5.5 current-month option deducts bills due within 30 days only", () => {
   assert.equal(value({ kind: "upcoming-bill", id: "r", label: "Rent", amount: 2000, dueDate: "2026-03-05" }, s).trace.zakatable, 2000);
   assert.equal(value({ kind: "upcoming-bill", id: "r", label: "Rent", amount: 2000, dueDate: "2026-03-31" }, s).trace.zakatable, 2000);
   assert.equal(value({ kind: "upcoming-bill", id: "r", label: "Insurance", amount: 900, dueDate: "2026-05-01" }, s).trace.zakatable, 0);
-  assert.equal(value({ kind: "upcoming-bill", id: "r", label: "Past due", amount: 900, dueDate: "2026-02-20" }, s).trace.zakatable, 0);
+  // Already due on the anniversary: deductible under R5.4, whatever the R5.5 toggle says.
+  assert.equal(value({ kind: "upcoming-bill", id: "r", label: "Past due", amount: 900, dueDate: "2026-02-20" }, s).trace.zakatable, 900);
 });
 
 test("R5.5 current-month with no due date assumes deductible and warns", () => {

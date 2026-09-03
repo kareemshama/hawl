@@ -1,5 +1,5 @@
 import type { MetalPrices, NisabMetal, NisabResult, NisabStandard, Settings, Trace } from "@hawl/core-types";
-import { round2 } from "./util.js";
+import { metalPrice, round2 } from "./util.js";
 
 /** R1.1, R1.2 */
 export const NISAB_GRAMS: Record<NisabStandard, Record<NisabMetal, number>> = {
@@ -12,13 +12,17 @@ export const LUNAR_RATE = 0.025;
 export const SOLAR_RATE = 0.025775;
 /** Mean Hijri year length in days, used for date arithmetic (R2.1). */
 export const LUNAR_YEAR_DAYS = 354;
+/** Used only when the user has chosen a Gregorian cycle (R3.2). */
+export const SOLAR_YEAR_DAYS = 365;
+
+/** Length of the user's zakat year in days, matching the rate they pay. */
+export function yearLengthFor(settings: Settings): number {
+  return settings.calendarBasis === "gregorian" ? SOLAR_YEAR_DAYS : LUNAR_YEAR_DAYS;
+}
 
 export function computeNisab(settings: Settings, prices: MetalPrices): NisabResult {
   const grams = NISAB_GRAMS[settings.nisabStandard][settings.nisabMetal];
-  const pricePerGram = settings.nisabMetal === "gold" ? prices.goldPerGram : prices.silverPerGram;
-  if (!(pricePerGram > 0)) {
-    throw new RangeError(`Missing or invalid ${settings.nisabMetal} price per gram: ${pricePerGram}`);
-  }
+  const pricePerGram = metalPrice(prices, settings.nisabMetal);
   return {
     metal: settings.nisabMetal,
     standard: settings.nisabStandard,

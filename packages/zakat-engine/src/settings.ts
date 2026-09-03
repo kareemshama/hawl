@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: Settings = {
   retirementMethod: "net-accessible", // R8.2
   stockProxyPercent: 25, // R9.2
   minorsRule: "exempt", // R6.2
+  hijriAdjustmentDays: 0, // R2.6
 };
 
 /**
