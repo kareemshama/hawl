@@ -201,7 +201,12 @@ I carry through the year", and it feeds R2.2, R2.3, and R15 directly.
 | M5 | Release | CI builds both platforms, README, first tagged release. |
 | M6 | Scholar review | RULES.md reviewed by at least one qualified scholar; open questions in Part 5 resolved or documented. |
 
-Status on 2026-09-03: M0 through M3 are done. M2 shipped with a browser-preview mode (mock
+Status on 2026-09-03: M0 through M5 are done, M6 (scholar review) is open. M4 added the Past
+years screen (missed-year reconstruction from statement history with per-year price overrides
+and cascading unpaid zakat), a hawl status card with a one-click move of the anniversary to the
+restart date, and a hawl start date setting. M5 added GitHub Actions CI and a tag-triggered
+release workflow building Windows NSIS/MSI and a macOS universal dmg, README, MIT license,
+changelog, and a locally verified Windows installer build. M2 shipped with a browser-preview mode (mock
 backend when the UI runs outside Tauri) so the interface can be driven by headless QA tools. M3
 shipped PDF (text layer and summary), CSV, OFX/QFX, and QIF import, running-balance verification,
 cross-file dedupe, the daily balance series, statement-derived cash assets, and the carry-over
