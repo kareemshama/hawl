@@ -7,6 +7,9 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "npm run tauri -w @hawl/desktop -- dev",
+    "build:desktop": "npm run tauri -w @hawl/desktop -- build",
+    "web": "npm run dev -w @hawl/desktop",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
