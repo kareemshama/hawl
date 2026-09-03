@@ -34,8 +34,9 @@ Hawl fills four gaps:
 - No bank API connections (Plaid and similar). Files only.
 - No mobile version.
 - No zakat al-fitr, no agricultural or livestock zakat.
-- No PDF statement parsing in v1. CSV, OFX/QFX, and QIF only. PDF with local LLM extraction is a
-  v2 item and reuses Thaw's extractor design.
+- No bank API connections. PDF, CSV, OFX/QFX, and QIF files are all supported in v1 (see
+  section 9), because PDF is the only format many banks offer and it is what most people already
+  have saved.
 - No tax advice. The app computes zakat under the user's chosen positions and says so.
 
 ## 4. Users
@@ -84,8 +85,10 @@ hawl/
 **Rust side (Tauri commands).**
 
 - Statement parsing: `csv` plus `csv-sniffer` for layout detection, `ofx-rs` for OFX/QFX,
-  `qif_parser` for QIF. Parsing runs in Rust so raw statement data never crosses into the webview
-  until it is normalized.
+  `qif_parser` for QIF. These run in Rust. PDF text extraction runs in the webview with pdf.js
+  (and tesseract.js for scanned pages) because that is where the mature, cross-platform libraries
+  are; the extracted rows then go through the same Rust normalizer as CSV so every format ends up
+  in one transaction model.
 - Storage: one encrypted file per profile, `hawl.store`, holding the profile as JSON. XChaCha20-
   Poly1305 with an Argon2id key derived from the passphrase; a fresh nonce on every save and an
   atomic rename so a crash never leaves a half-written file. SQLCipher was the original plan but
@@ -136,7 +139,36 @@ hawl/
   at the date, amount or debit/credit, description, and balance columns.
 - Transfers between the user's own accounts are detected by matching amount and date across
   accounts and excluded from any income or spending summary (R15.6).
-- Every parsed field carries provenance: file, line, and confidence.
+- Every parsed field carries provenance: file, line or page, and confidence.
+
+**PDF statements.** The goal is the same as for CSV: a dated list of transactions and running
+balances so the app can rebuild the daily balance series and show what was carried through the
+year. The pipeline, in order of preference:
+
+1. **Text layer extraction.** Most bank PDFs are generated, not scanned, and carry a text layer.
+   Extract text with positions per page (pdf.js in the webview, as Thaw does), then reconstruct
+   rows by y-coordinate and columns by x-coordinate clusters. Detect the date, description,
+   amount or debit/credit, and balance columns with the same header heuristics as CSV, plus a
+   consistency check: each row's balance must equal the previous balance plus or minus the amount.
+   That check is what makes PDF import trustworthy; rows that fail it are flagged for review.
+2. **Statement summary fallback.** If transaction rows cannot be recovered, extract the opening
+   balance, closing balance, and statement period from the summary block. That still gives one
+   balance point per statement, enough for the anniversary snapshot and a coarse dip check, and
+   the app says so in the trace.
+3. **OCR for scanned PDFs.** When a page has no text layer, run OCR locally (tesseract.js, as in
+   Thaw) and feed the result into step 1. Slower and lower confidence; every OCR value is marked
+   estimated.
+4. **Local LLM assist (optional, later).** For layouts the heuristics cannot map, Thaw's local
+   llama-server extractor can turn the page text into strict JSON. This is opt-in, offline, and
+   only reached when steps 1 to 3 fail, so the default install stays small.
+
+Users confirm the detected column mapping once per bank, and the mapping is remembered. Nothing
+from a statement is trusted without the running-balance check or an explicit user confirmation.
+
+**Carry-over view.** Once statements are loaded the app shows, per account and in total, the
+balance on each day of the hawl, the lowest point and when it happened, the balance on the
+anniversary, and whether the total ever dipped below nisab. This is the answer to "what money did
+I carry through the year", and it feeds R2.2, R2.3, and R15 directly.
 
 ## 10. Privacy and security
 
@@ -164,7 +196,7 @@ hawl/
 | M0 | Rules research and spec | This document and RULES.md exist. |
 | M1 | Engine | `zakat-engine` implements every rule in RULES.md Parts 1 to 3 with a test per rule and per setting. No UI. |
 | M2 | Manual-entry app | Tauri shell, setup flow, manual asset and liability entry, result with audit trail, encrypted storage, live spot price. Usable end to end without statements. |
-| M3 | Statement import | CSV, OFX/QFX, QIF parsing with layout detection and confirmation UI. Daily balance series. |
+| M3 | Statement import | PDF (text layer, summary fallback, OCR), CSV, OFX/QFX, and QIF parsing with layout detection, running-balance verification, and a confirmation UI. Daily balance series and the carry-over view. |
 | M4 | Hawl tracking | Anniversary snapshot, dip detection, missed-year reconstruction. |
 | M5 | Release | CI builds both platforms, README, first tagged release. |
 | M6 | Scholar review | RULES.md reviewed by at least one qualified scholar; open questions in Part 5 resolved or documented. |
@@ -181,9 +213,9 @@ reviewer and a scholar can check without a UI.
 2. **Default preset at setup.** Force a choice, or default to Hanafi with silver nisab.
 3. **Whether to show income and spending summaries at all.** They are not part of zakat and could
    mislead. Leaning toward showing balance history only.
-4. **PDF support timing.** Many UK banks push PDF over CSV. If early users are UK-heavy, PDF
-   moves up to M3.
-5. **Apple Developer ID.** See section 11.
+4. **Apple Developer ID.** See section 11.
+5. **Local LLM assist for PDFs.** Ship it in M3 behind an opt-in download, or hold it for a later
+   release once the heuristic pipeline has been tried on real statements.
 
 ## 14. Review plan
 
