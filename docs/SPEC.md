@@ -165,8 +165,8 @@ hawl/
 | M5 | Release | CI builds both platforms, README, first tagged release. |
 | M6 | Scholar review | RULES.md reviewed by at least one qualified scholar; open questions in Part 5 resolved or documented. |
 
-M1 before M2 on purpose. The engine is the part that has to be right, and it is the part Codex
-and a scholar can review without a UI.
+M1 before M2 on purpose. The engine is the part that has to be right, and it is the part a
+reviewer and a scholar can check without a UI.
 
 ## 13. Open decisions
 
@@ -180,6 +180,7 @@ and a scholar can review without a UI.
 
 ## 14. Review plan
 
-- Codex adversarial review on the engine after M1, then on each milestone.
-- Claude Code review on every pull request.
+- Claude Code adversarial review on the engine after each milestone (the M1 pass found and fixed
+  ten defects).
+- A second independent reviewer to be added later.
 - Scholar review of RULES.md before public release.
