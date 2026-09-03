@@ -201,8 +201,14 @@ I carry through the year", and it feeds R2.2, R2.3, and R15 directly.
 | M5 | Release | CI builds both platforms, README, first tagged release. |
 | M6 | Scholar review | RULES.md reviewed by at least one qualified scholar; open questions in Part 5 resolved or documented. |
 
-Status on 2026-09-03: M0, M1, and M2 are done. M2 shipped with a browser-preview mode (mock
-backend when the UI runs outside Tauri) so the interface can be driven by headless QA tools.
+Status on 2026-09-03: M0 through M3 are done. M2 shipped with a browser-preview mode (mock
+backend when the UI runs outside Tauri) so the interface can be driven by headless QA tools. M3
+shipped PDF (text layer and summary), CSV, OFX/QFX, and QIF import, running-balance verification,
+cross-file dedupe, the daily balance series, statement-derived cash assets, and the carry-over
+chart. Two M3 caveats: the OCR path for scanned PDFs is wired but untested against a real scan,
+and tesseract.js fetches its English language data from a CDN on first use, so bundling it
+locally is still open. Parsing lives in TypeScript (`packages/statements`) rather than Rust so
+the same code serves PDF rows from pdf.js and is unit-tested and QA-able in the browser.
 
 M1 before M2 on purpose. The engine is the part that has to be right, and it is the part a
 reviewer and a scholar can check without a UI.
