@@ -89,11 +89,13 @@ hawl/
   (and tesseract.js for scanned pages) because that is where the mature, cross-platform libraries
   are; the extracted rows then go through the same Rust normalizer as CSV so every format ends up
   in one transaction model.
-- Storage: one encrypted file per profile, `hawl.store`, holding the profile as JSON. XChaCha20-
-  Poly1305 with an Argon2id key derived from the passphrase; a fresh nonce on every save and an
-  atomic rename so a crash never leaves a half-written file. SQLCipher was the original plan but
-  it drags OpenSSL into the Windows build, and the data volume is tiny. SQLite is not ruled out for
-  transaction history in M3 if the statement data outgrows a single document.
+- Storage: one plain JSON file per profile, `hawl.json`, in the app data directory, written
+  through a temp file and an atomic rename so a crash never leaves a half-written file. Versions
+  0.1.0 and 0.1.1 encrypted this file under a user passphrase (XChaCha20-Poly1305, Argon2id). The
+  passphrase was dropped on 2026-09-04: the app is opened about once a year, and a passphrase with
+  no recovery that nobody remembers a year later would cost users their history. Old `hawl.store`
+  files are left untouched and not read. SQLite is not ruled out for transaction history if the
+  statement data outgrows a single document.
 - Spot prices: `reqwest` against a fallback chain (gold-api.com, goldprice.dev, Swissquote public
   feed), cached daily, always overridable by hand. Every result stores the price used.
 - Hijri conversion: ICU4X `icu` crate with the Umm al-Qura calendar, computed in Rust and passed
@@ -175,7 +177,8 @@ I carry through the year", and it feeds R2.2, R2.3, and R15 directly.
 - No telemetry. No accounts. No cloud.
 - The only network call is the spot price fetch, and it can be turned off in favor of manual
   entry.
-- Database encrypted at rest with a user passphrase. Statement files are read, parsed, and not
+- Data is one readable JSON file on the user's computer, with a "Delete all data" control in
+  Settings. No passphrase (see section 6 for why). Statement files are read, parsed, and not
   copied; the user keeps their originals.
 - Export is a local JSON or PDF summary the user chooses to create.
 
@@ -195,7 +198,7 @@ I carry through the year", and it feeds R2.2, R2.3, and R15 directly.
 |---|---|---|
 | M0 | Rules research and spec | This document and RULES.md exist. |
 | M1 | Engine | `zakat-engine` implements every rule in RULES.md Parts 1 to 3 with a test per rule and per setting. No UI. |
-| M2 | Manual-entry app | Tauri shell, setup flow, manual asset and liability entry, result with audit trail, encrypted storage, live spot price. Usable end to end without statements. |
+| M2 | Manual-entry app | Tauri shell, setup flow, manual asset and liability entry, result with audit trail, local storage, live spot price. Usable end to end without statements. |
 | M3 | Statement import | PDF (text layer, summary fallback, OCR), CSV, OFX/QFX, and QIF parsing with layout detection, running-balance verification, and a confirmation UI. Daily balance series and the carry-over view. |
 | M4 | Hawl tracking | Anniversary snapshot, dip detection, missed-year reconstruction. |
 | M5 | Release | CI builds both platforms, README, first tagged release. |

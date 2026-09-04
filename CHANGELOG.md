@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 (2026-09-04)
+
+- The passphrase is gone. Hawl is opened about once a year, and a forgotten passphrase with no
+  recovery meant starting over. The profile is now one readable JSON file, `hawl.json`, in the
+  app data folder. Settings shows where it is and has a "Delete all data" button.
+- Stores created by 0.1.0 and 0.1.1 (`hawl.store`) are not read or migrated; they are left in
+  place. Those releases were public for one day.
+
 ## 0.1.1 (2026-09-03)
 
 Fixes from an independent adversarial review (Codex) of the engine and statement parser.

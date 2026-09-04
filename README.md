@@ -3,7 +3,7 @@
   <h1>Hawl</h1>
   <p>A local-first zakat calculator for Windows and macOS.</p>
   <p>
-    <a href="https://github.com/kareemshama/hawl/releases"><img src="https://img.shields.io/badge/release-0.1.1-2f7d4a" alt="Release" /></a>
+    <a href="https://github.com/kareemshama/hawl/releases"><img src="https://img.shields.io/badge/release-0.2.0-2f7d4a" alt="Release" /></a>
     <img src="https://img.shields.io/badge/license-MIT-b8860b" alt="MIT" />
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-1b1f1c" alt="Windows and macOS" />
     <img src="https://img.shields.io/badge/data-stays%20on%20your%20computer-2f7d4a" alt="Local first" />
@@ -33,8 +33,9 @@ rule is written down with its sources in [docs/RULES.md](docs/RULES.md).
   calculation, and the rule numbers behind it.
 - **Reconstructs missed years.** Values past anniversaries from statement history and carries
   unpaid zakat forward as a debt.
-- **Keeps your data on your computer.** Everything is encrypted with a passphrase you choose. The
-  only network request fetches the gold and silver price, and you can enter prices by hand instead.
+- **Keeps your data on your computer.** Everything you enter is saved in one file in your app
+  data folder and nowhere else, and Settings has a button to delete it. The only network request
+  fetches the gold and silver price, and you can enter prices by hand instead.
 
 <p align="center">
   <img src="docs/screenshots/overview.png" alt="Overview with verdict and audit trail" width="720" />
@@ -84,7 +85,7 @@ The repository is a workspace:
 | `packages/zakat-engine` | The rules engine. Pure TypeScript, one test per rule. |
 | `packages/statements` | Statement parsing, running-balance verification, daily balance series. |
 | `packages/core-types` | Shared types. |
-| `apps/desktop` | Tauri 2 app: React front end, Rust for the encrypted store, prices, and Hijri dates. |
+| `apps/desktop` | Tauri 2 app: React front end, Rust for the store, prices, and Hijri dates. |
 | `docs/RULES.md` | Every rule the engine applies, with sources. |
 | `docs/SPEC.md` | Product and architecture spec, milestones, open decisions. |
 

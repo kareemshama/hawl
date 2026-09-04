@@ -7,11 +7,10 @@ import {
   hijriFromGregorian,
   hijriPreviousOccurrence,
   hijriToGregorian,
-  storeCreate,
-  storeLock,
+  storeDelete,
+  storeLoad,
   storeSave,
   storeStatus,
-  storeUnlock,
   todayIso,
   type HijriDate,
 } from "./lib/commands";
@@ -24,17 +23,17 @@ import SetupWizard from "./components/SetupWizard";
 import StatementsPanel from "./components/StatementsPanel";
 import YearsPanel from "./components/YearsPanel";
 import TitleBar from "./components/TitleBar";
-import UnlockScreen, { Crescent } from "./components/UnlockScreen";
+import { Crescent } from "./components/Crescent";
 
-type Screen = "loading" | "create" | "unlock" | "setup" | "main";
+type Screen = "loading" | "error" | "setup" | "main";
 export type View = "overview" | "statements" | "assets" | "liabilities" | "years" | "settings";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [view, setView] = useState<View>("overview");
   const [profile, setProfile] = useState<Profile>(emptyProfile);
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [storePath, setStorePath] = useState<string | null>(null);
   const [anniversary, setAnniversary] = useState<HijriDate | null>(null);
   const [pricesBusy, setPricesBusy] = useState(false);
   const [pricesError, setPricesError] = useState<string | null>(null);
@@ -43,48 +42,32 @@ export default function App() {
   // --- Boot -----------------------------------------------------------------
   useEffect(() => {
     storeStatus()
-      .then((s) => setScreen(s.exists ? "unlock" : "create"))
+      .then((s) => setStorePath(s.path))
+      .catch(() => setStorePath(null));
+    storeLoad()
+      .then((raw) => {
+        if (raw === null || raw === undefined) {
+          setProfile(emptyProfile());
+          setScreen("setup");
+          return;
+        }
+        const p = normalizeProfile(raw);
+        setProfile(p);
+        setScreen(p.setupComplete ? "main" : "setup");
+      })
       .catch((e) => {
-        setAuthError(String(e));
-        setScreen("create");
+        setBootError(String(e));
+        setScreen("error");
       });
   }, []);
 
-  const onCreate = async (passphrase: string) => {
-    setAuthBusy(true);
-    setAuthError(null);
-    try {
-      const p = emptyProfile();
-      await storeCreate(passphrase, p);
-      setProfile(p);
-      setScreen("setup");
-    } catch (e) {
-      setAuthError(String(e));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const onUnlock = async (passphrase: string) => {
-    setAuthBusy(true);
-    setAuthError(null);
-    try {
-      const raw = await storeUnlock(passphrase);
-      const p = normalizeProfile(raw);
-      setProfile(p);
-      setScreen(p.setupComplete ? "main" : "setup");
-    } catch (e) {
-      setAuthError(String(e));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const onLock = async () => {
-    await storeLock();
+  /** Remove the store file and start again from the setup wizard. */
+  const deleteAll = async () => {
+    await storeDelete();
     setProfile(emptyProfile());
     setAnniversary(null);
-    setScreen("unlock");
+    setSaveState("idle");
+    setScreen("setup");
   };
 
   // --- Persistence (debounced) ---------------------------------------------
@@ -237,10 +220,21 @@ export default function App() {
       </Shell>
     );
   }
-  if (screen === "create" || screen === "unlock") {
+  if (screen === "error") {
     return (
       <Shell>
-        <UnlockScreen mode={screen} busy={authBusy} error={authError} onSubmit={screen === "create" ? onCreate : onUnlock} />
+        <div className="flex h-full items-center justify-center p-8">
+          <div className="card w-full max-w-md space-y-4">
+            <div className="flex items-center gap-3">
+              <Crescent />
+              <h1 className="text-xl font-semibold">Hawl could not read your data</h1>
+            </div>
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{bootError}</p>
+            {storePath && <p className="help break-all">{storePath}</p>}
+            <p className="text-sm text-ink/60">Back up or repair that file and reopen Hawl, or delete it and start again with an empty profile.</p>
+            <button className="btn-primary w-full" onClick={() => void deleteAll()}>Delete the file and start again</button>
+          </div>
+        </div>
       </Shell>
     );
   }
@@ -348,7 +342,7 @@ export default function App() {
             />
           )}
           {view === "years" && <YearsPanel profile={profile} settings={settings} prices={prices} current={anniversary} onChange={update} />}
-          {view === "settings" && <SettingsPanel profile={profile} onChange={update} onLock={() => void onLock()} />}
+          {view === "settings" && <SettingsPanel profile={profile} onChange={update} storePath={storePath} onDeleteAll={deleteAll} />}
         </main>
       </div>
     </Shell>

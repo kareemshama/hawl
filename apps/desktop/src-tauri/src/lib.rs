@@ -13,13 +13,8 @@ fn store_status(state: tauri::State<'_, StoreState>) -> StoreStatus {
 }
 
 #[tauri::command]
-fn store_create(passphrase: String, profile: serde_json::Value, state: tauri::State<'_, StoreState>) -> Result<(), String> {
-    store::create(&state, &passphrase, &profile)
-}
-
-#[tauri::command]
-fn store_unlock(passphrase: String, state: tauri::State<'_, StoreState>) -> Result<serde_json::Value, String> {
-    store::unlock(&state, &passphrase)
+fn store_load(state: tauri::State<'_, StoreState>) -> Result<Option<serde_json::Value>, String> {
+    store::load(&state)
 }
 
 #[tauri::command]
@@ -28,13 +23,8 @@ fn store_save(profile: serde_json::Value, state: tauri::State<'_, StoreState>) -
 }
 
 #[tauri::command]
-fn store_lock(state: tauri::State<'_, StoreState>) {
-    state.lock();
-}
-
-#[tauri::command]
-fn store_change_passphrase(current: String, next: String, state: tauri::State<'_, StoreState>) -> Result<(), String> {
-    store::change_passphrase(&state, &current, &next)
+fn store_delete(state: tauri::State<'_, StoreState>) -> Result<(), String> {
+    store::delete(&state)
 }
 
 // --- Prices ----------------------------------------------------------------
@@ -84,11 +74,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             store_status,
-            store_create,
-            store_unlock,
+            store_load,
             store_save,
-            store_lock,
-            store_change_passphrase,
+            store_delete,
             fetch_prices,
             hijri_from_gregorian,
             hijri_to_gregorian,

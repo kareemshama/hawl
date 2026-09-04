@@ -2,16 +2,14 @@
  * Browser-only stand-ins for the Tauri commands, used when the UI runs in a plain browser
  * (Vite dev server opened in Chrome, headless QA). Never loaded inside the Tauri webview.
  *
- * Storage is localStorage without encryption. Hijri conversion uses the browser's own Umm al-Qura
- * implementation, which can differ from ICU4X by a day at month boundaries; that is acceptable for
- * UI work and is why the real app converts in Rust.
+ * Storage is localStorage. Hijri conversion uses the browser's own Umm al-Qura implementation,
+ * which can differ from ICU4X by a day at month boundaries; that is acceptable for UI work and is
+ * why the real app converts in Rust.
  */
 import type { MetalPrices } from "@hawl/core-types";
 import type { HijriDate, StoreStatus } from "./commands";
 
 const KEY = "hawl-mock-store";
-const PASS_KEY = "hawl-mock-pass";
-let unlocked = false;
 
 const MONTHS = ["Muharram", "Safar", "Rabi' al-Awwal", "Rabi' al-Thani", "Jumada al-Ula", "Jumada al-Akhirah", "Rajab", "Sha'ban", "Ramadan", "Shawwal", "Dhu al-Qa'dah", "Dhu al-Hijjah"];
 
@@ -51,32 +49,17 @@ function hijriToGregorianSearch(year: number, month: number, day: number): strin
 }
 
 export const mock = {
-  storeStatus: (): Promise<StoreStatus> => delay({ exists: localStorage.getItem(KEY) !== null, unlocked, path: "localStorage (browser mock)" }),
-  storeCreate: (passphrase: string, profile: unknown) => {
-    if (localStorage.getItem(KEY) !== null) return Promise.reject("A store already exists. Unlock it instead.");
-    if (passphrase.length < 8) return Promise.reject("Passphrase must be at least 8 characters.");
-    localStorage.setItem(KEY, JSON.stringify(profile));
-    localStorage.setItem(PASS_KEY, passphrase);
-    unlocked = true;
-    return delay(undefined);
-  },
-  storeUnlock: (passphrase: string) => {
-    if (localStorage.getItem(PASS_KEY) !== passphrase) return Promise.reject("Wrong passphrase, or the store is corrupted.");
-    unlocked = true;
-    return delay(JSON.parse(localStorage.getItem(KEY) ?? "{}") as unknown);
+  storeStatus: (): Promise<StoreStatus> => delay({ exists: localStorage.getItem(KEY) !== null, path: "localStorage (browser mock)" }),
+  storeLoad: () => {
+    const raw = localStorage.getItem(KEY);
+    return delay(raw === null ? null : (JSON.parse(raw) as unknown));
   },
   storeSave: (profile: unknown) => {
-    if (!unlocked) return Promise.reject("Store is locked.");
     localStorage.setItem(KEY, JSON.stringify(profile));
     return delay(undefined);
   },
-  storeLock: () => {
-    unlocked = false;
-    return delay(undefined);
-  },
-  storeChangePassphrase: (current: string, next: string) => {
-    if (localStorage.getItem(PASS_KEY) !== current) return Promise.reject("Wrong passphrase.");
-    localStorage.setItem(PASS_KEY, next);
+  storeDelete: () => {
+    localStorage.removeItem(KEY);
     return delay(undefined);
   },
   fetchPrices: (currency: string): Promise<MetalPrices> =>

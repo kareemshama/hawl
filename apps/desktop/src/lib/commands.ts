@@ -3,7 +3,6 @@ import type { MetalPrices } from "@hawl/core-types";
 
 export interface StoreStatus {
   exists: boolean;
-  unlocked: boolean;
   path: string;
 }
 
@@ -36,11 +35,10 @@ export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in
 
 type Backend = {
   storeStatus: () => Promise<StoreStatus>;
-  storeCreate: (passphrase: string, profile: unknown) => Promise<void>;
-  storeUnlock: (passphrase: string) => Promise<unknown>;
+  /** The saved profile, or null when nothing has been saved yet. */
+  storeLoad: () => Promise<unknown | null>;
   storeSave: (profile: unknown) => Promise<void>;
-  storeLock: () => Promise<void>;
-  storeChangePassphrase: (current: string, next: string) => Promise<void>;
+  storeDelete: () => Promise<void>;
   fetchPrices: (currency: string) => Promise<MetalPrices>;
   hijriFromGregorian: (date: string, adjust: number) => Promise<HijriDate>;
   hijriToGregorian: (year: number, month: number, day: number, adjust: number) => Promise<HijriDate>;
@@ -50,11 +48,9 @@ type Backend = {
 
 const tauri: Backend = {
   storeStatus: () => invoke<StoreStatus>("store_status"),
-  storeCreate: (passphrase, profile) => invoke<void>("store_create", { passphrase, profile }),
-  storeUnlock: (passphrase) => invoke<unknown>("store_unlock", { passphrase }),
+  storeLoad: () => invoke<unknown | null>("store_load"),
   storeSave: (profile) => invoke<void>("store_save", { profile }),
-  storeLock: () => invoke<void>("store_lock"),
-  storeChangePassphrase: (current, next) => invoke<void>("store_change_passphrase", { current, next }),
+  storeDelete: () => invoke<void>("store_delete"),
   fetchPrices: (currency) => invoke<MetalPrices>("fetch_prices", { currency }),
   hijriFromGregorian: (date, adjust) => invoke<HijriDate>("hijri_from_gregorian", { date, adjust }),
   hijriToGregorian: (year, month, day, adjust) => invoke<HijriDate>("hijri_to_gregorian", { year, month, day, adjust }),
@@ -70,11 +66,9 @@ if (!isTauri) {
 }
 
 export const storeStatus = () => backend.storeStatus();
-export const storeCreate = (passphrase: string, profile: unknown) => backend.storeCreate(passphrase, profile);
-export const storeUnlock = (passphrase: string) => backend.storeUnlock(passphrase);
+export const storeLoad = () => backend.storeLoad();
 export const storeSave = (profile: unknown) => backend.storeSave(profile);
-export const storeLock = () => backend.storeLock();
-export const storeChangePassphrase = (current: string, next: string) => backend.storeChangePassphrase(current, next);
+export const storeDelete = () => backend.storeDelete();
 export const fetchPrices = (currency: string) => backend.fetchPrices(currency);
 export const hijriFromGregorian = (date: string, adjust: number) => backend.hijriFromGregorian(date, adjust);
 export const hijriToGregorian = (year: number, month: number, day: number, adjust: number) => backend.hijriToGregorian(year, month, day, adjust);

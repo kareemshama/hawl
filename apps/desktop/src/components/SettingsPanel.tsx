@@ -1,13 +1,14 @@
 import { useState } from "react";
 import type { Madhab, MetalPrices, Settings } from "@hawl/core-types";
 import { PRESETS, DEFAULT_SETTINGS } from "@hawl/zakat-engine";
-import { HIJRI_MONTHS, storeChangePassphrase } from "../lib/commands";
+import { HIJRI_MONTHS } from "../lib/commands";
 import { CURRENCIES, settingsOf, type Profile } from "../lib/profile";
 
 interface Props {
   profile: Profile;
   onChange: (p: Profile) => void;
-  onLock: () => void;
+  storePath: string | null;
+  onDeleteAll: () => Promise<void>;
 }
 
 interface Choice<K extends keyof Settings> {
@@ -31,7 +32,7 @@ const CHOICES: Choice<keyof Settings>[] = [
   { key: "hijriAdjustmentDays", label: "Moonsighting adjustment to Umm al-Qura dates", rule: "R2.6", options: [{ value: -1, label: "One day earlier" }, { value: 0, label: "None" }, { value: 1, label: "One day later" }] },
 ] as Choice<keyof Settings>[];
 
-export default function SettingsPanel({ profile, onChange, onLock }: Props) {
+export default function SettingsPanel({ profile, onChange, storePath, onDeleteAll }: Props) {
   const settings = settingsOf(profile);
   const preset = profile.madhab === "custom" ? DEFAULT_SETTINGS : PRESETS[profile.madhab];
 
@@ -151,10 +152,11 @@ export default function SettingsPanel({ profile, onChange, onLock }: Props) {
 
       <ManualPrices profile={profile} onChange={onChange} />
 
-      <section className="card space-y-4">
-        <h3 className="font-semibold">Security</h3>
-        <ChangePassphrase />
-        <button className="btn-secondary" onClick={onLock}>Lock now</button>
+      <section className="card space-y-3">
+        <h3 className="font-semibold">Your data</h3>
+        <p className="text-sm text-ink/60">Everything you enter is kept in one file on this computer and nowhere else. Copy that file to back it up. Delete it here when you no longer need it.</p>
+        {storePath && <p className="help break-all">{storePath}</p>}
+        <DeleteAllData onConfirm={onDeleteAll} />
       </section>
     </div>
   );
@@ -201,43 +203,34 @@ function ManualPrices({ profile, onChange }: { profile: Profile; onChange: (p: P
   );
 }
 
-function ChangePassphrase() {
+function DeleteAllData({ onConfirm }: { onConfirm: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
-  if (!open) return <button className="btn-secondary" onClick={() => setOpen(true)}>Change passphrase</button>;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!open) return <button className="btn-secondary" onClick={() => setOpen(true)}>Delete all data</button>;
   return (
-    <form
-      className="space-y-3"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        try {
-          await storeChangePassphrase(current, next);
-          setMsg("Passphrase changed.");
-          setCurrent("");
-          setNext("");
-          setOpen(false);
-        } catch (err) {
-          setMsg(String(err));
-        }
-      }}
-    >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="label">Current passphrase</label>
-          <input type="password" className="input" value={current} onChange={(e) => setCurrent(e.target.value)} />
-        </div>
-        <div>
-          <label className="label">New passphrase</label>
-          <input type="password" className="input" value={next} onChange={(e) => setNext(e.target.value)} />
-        </div>
-      </div>
-      {msg && <p className="text-sm">{msg}</p>}
+    <div className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-4">
+      <p className="text-sm text-red-900">This removes every account, statement, asset, liability, recorded year, and setting from this computer. There is no undo. Hawl restarts at the setup wizard.</p>
+      {error && <p className="text-sm text-red-800">{error}</p>}
       <div className="flex gap-2">
-        <button type="submit" className="btn-primary" disabled={next.length < 8 || current.length === 0}>Save</button>
-        <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
+        <button
+          className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-50"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await onConfirm();
+            } catch (e) {
+              setError(String(e));
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Deleting..." : "Yes, delete everything"}
+        </button>
+        <button className="btn-secondary" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
       </div>
-    </form>
+    </div>
   );
 }
