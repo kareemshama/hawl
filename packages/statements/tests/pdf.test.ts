@@ -88,6 +88,13 @@ test("extractSummary finds balances and the statement period", () => {
   assert.equal(s.periodEnd, "2026-01-31");
 });
 
+test("extractSummary handles a date between the label and the amount (Bank of America)", () => {
+  const text = `Adv Plus Banking March 1, 2026 to March 31, 2026 Account summary Beginning balance on March 1, 2026 $4,210.55 Deposits and other additions 3,150.00 Withdrawals and other subtractions -1,872.40 Ending balance on March 31, 2026 $5,238.15`;
+  const s = extractSummary(text);
+  assert.equal(s.openingBalance, 4210.55);
+  assert.equal(s.closingBalance, 5238.15);
+});
+
 test("extractSummary handles UK wording", () => {
   const text = `Your statement 5 January 2026 to 4 February 2026. Balance brought forward £1,500.00 ... Balance carried forward £2,267.90`;
   const s = extractSummary(text);

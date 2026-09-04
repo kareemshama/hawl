@@ -3,6 +3,7 @@ import type { Madhab, MetalPrices, Settings } from "@hawl/core-types";
 import { PRESETS, DEFAULT_SETTINGS } from "@hawl/zakat-engine";
 import { HIJRI_MONTHS } from "../lib/commands";
 import { CURRENCIES, settingsOf, type Profile } from "../lib/profile";
+import AiSetupCard, { useAiStatus } from "./AiSetup";
 
 interface Props {
   profile: Profile;
@@ -34,6 +35,7 @@ const CHOICES: Choice<keyof Settings>[] = [
 
 export default function SettingsPanel({ profile, onChange, storePath, onDeleteAll }: Props) {
   const settings = settingsOf(profile);
+  const ai = useAiStatus();
   const preset = profile.madhab === "custom" ? DEFAULT_SETTINGS : PRESETS[profile.madhab];
 
   const setOverride = <K extends keyof Settings>(key: K, value: Settings[K]) => {
@@ -151,6 +153,8 @@ export default function SettingsPanel({ profile, onChange, storePath, onDeleteAl
       </section>
 
       <ManualPrices profile={profile} onChange={onChange} />
+
+      <AiSetupCard status={ai.status} onChanged={ai.refresh} />
 
       <section className="card space-y-3">
         <h3 className="font-semibold">Your data</h3>

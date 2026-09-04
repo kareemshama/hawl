@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 (2026-09-04)
+
+- Local AI for statements the built-in parser cannot read, such as Bank of America's layout with
+  sections instead of one table and no running-balance column. Same approach as Thaw: llama.cpp's
+  server and a Qwen2.5 3B model (about 2 GB) are downloaded once from Settings, run on this
+  computer (on the graphics card when there is one), and read each page into a table of dated,
+  signed rows. The result goes through the same review, duplicate check, and balance check as
+  every other import; when the statement has no running balances, the rows are checked against
+  its opening and closing balance instead. The AI is used automatically when the parser finds
+  nothing, and a "Read with AI" button on the review re-reads any PDF whose rows look wrong.
+- The statement summary parser now reads "Beginning balance on March 1, 2026 $4,210.55", where a
+  date sits between the label and the amount.
+
 ## 0.3.0 (2026-09-04)
 
 - Import a whole year of statements at once. Drop or choose many files; the first is reviewed

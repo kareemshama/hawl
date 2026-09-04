@@ -96,6 +96,14 @@ hawl/
   no recovery that nobody remembers a year later would cost users their history. Old `hawl.store`
   files are left untouched and not read. SQLite is not ruled out for transaction history if the
   statement data outgrows a single document.
+- Local AI (added 2026-09-04, v0.4.0): `llm.rs` mirrors Thaw. `llama-server` from the latest
+  llama.cpp GitHub release (CUDA build on Windows with an NVIDIA GPU, else CPU) and
+  Qwen2.5-3B-Instruct Q4_K_M GGUF are downloaded into the app data dir on request, the server is
+  spawned on 127.0.0.1:39282 on first use and killed on exit. `ai_extract_page` sends one page of
+  text with a JSON schema (rows of date, description, signed amount, optional balance, plus
+  opening/closing balance and period) and the front end turns the rows into a four-column table
+  that goes through the normal mapping, dedupe, and review. Used automatically when the heuristics
+  find no rows; available on demand from the review card for any PDF.
 - Spot prices: `reqwest` against a fallback chain (gold-api.com, goldprice.dev, Swissquote public
   feed), cached daily, always overridable by hand. Every result stores the price used.
 - Hijri conversion: ICU4X `icu` crate with the Umm al-Qura calendar, computed in Rust and passed
@@ -175,8 +183,9 @@ I carry through the year", and it feeds R2.2, R2.3, and R15 directly.
 ## 10. Privacy and security
 
 - No telemetry. No accounts. No cloud.
-- The only network call is the spot price fetch, and it can be turned off in favor of manual
-  entry.
+- The only network calls are the spot price fetch, which can be turned off in favor of manual
+  entry, and the optional one-time download of the local AI engine and model. Statement text
+  never leaves the computer; the model runs locally.
 - Data is one readable JSON file on the user's computer, with a "Delete all data" control in
   Settings. No passphrase (see section 6 for why). Statement files are read, parsed, and not
   copied; the user keeps their originals.

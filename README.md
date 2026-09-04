@@ -3,7 +3,7 @@
   <h1>Hawl</h1>
   <p>A local-first zakat calculator for Windows and macOS.</p>
   <p>
-    <a href="https://github.com/kareemshama/hawl/releases"><img src="https://img.shields.io/badge/release-0.3.0-2f7d4a" alt="Release" /></a>
+    <a href="https://github.com/kareemshama/hawl/releases"><img src="https://img.shields.io/badge/release-0.4.0-2f7d4a" alt="Release" /></a>
     <img src="https://img.shields.io/badge/license-MIT-b8860b" alt="MIT" />
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-1b1f1c" alt="Windows and macOS" />
     <img src="https://img.shields.io/badge/data-stays%20on%20your%20computer-2f7d4a" alt="Local first" />
@@ -21,6 +21,9 @@ rule is written down with its sources in [docs/RULES.md](docs/RULES.md).
 - **Reads statements.** PDF, CSV, OFX/QFX, and QIF, a whole year of files at once. Column layouts
   are detected automatically and every row is cross-checked against the running balance. The same
   transaction from two files is counted once.
+- **Reads awkward PDFs with local AI.** Statements laid out in sections without a running balance
+  are read by a small model that runs on your computer (llama.cpp, one-time 2 GB download from
+  Settings). Its rows go through the same review and balance checks as everything else.
 - **Shows what you carried through the year.** A daily balance across all accounts from the start
   of the hawl to the anniversary, the lowest point, the balance on the anniversary, and whether the
   total ever dipped below nisab.
@@ -34,8 +37,9 @@ rule is written down with its sources in [docs/RULES.md](docs/RULES.md).
 - **Reconstructs missed years.** Values past anniversaries from statement history and carries
   unpaid zakat forward as a debt.
 - **Keeps your data on your computer.** Everything you enter is saved in one file in your app
-  data folder and nowhere else, and Settings has a button to delete it. The only network request
-  fetches the gold and silver price, and you can enter prices by hand instead.
+  data folder and nowhere else, and Settings has a button to delete it. The only network requests
+  are the gold and silver price, which you can enter by hand instead, and the optional one-time
+  AI download.
 
 <p align="center">
   <img src="docs/screenshots/overview.png" alt="Overview with verdict and audit trail" width="720" />

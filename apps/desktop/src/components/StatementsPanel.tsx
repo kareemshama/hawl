@@ -5,6 +5,7 @@ import { money } from "../lib/format";
 import { newId, type Profile } from "../lib/profile";
 import type { SeriesResult } from "@hawl/statements";
 import CarryOverChart from "./CarryOverChart";
+import AiSetupCard, { useAiStatus } from "./AiSetup";
 import type { HijriDate } from "../lib/commands";
 
 interface Props {
@@ -63,6 +64,7 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
   const [dragOver, setDragOver] = useState(false);
   const [lastCommit, setLastCommit] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const ai = useAiStatus();
 
   const handleFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
@@ -77,7 +79,7 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
         const prefix = list.length === 1 ? `Reading ${file.name}` : `Reading ${i + 1} of ${list.length}: ${file.name}`;
         setBusy(prefix);
         try {
-          reviews.push(await analyzeFile(file, profile.currency, (m) => setBusy(`${prefix} (${m.toLowerCase()})`)));
+          reviews.push(await analyzeFile(file, profile.currency, (m) => setBusy(`${prefix} (${m.toLowerCase()})`), { ai: "auto", aiReady: ai.ready }));
         } catch (e) {
           failed.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -113,6 +115,22 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
       const rest = items.slice(1);
       return rest.length > 0 ? makeBatch(rest.map((it) => it.review)) : null;
     });
+  };
+
+  /** Re-read the lead PDF with the local AI and put the result in its place. */
+  const readWithAi = async () => {
+    const file = batch?.[0]?.review.sourceFile;
+    if (!file) return;
+    setError(null);
+    setBusy(`AI reading ${file.name}`);
+    try {
+      const r = await analyzeFile(file, profile.currency, (m) => setBusy(`${file.name}: ${m}`), { ai: "force", aiReady: true });
+      updateLead(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
   };
 
   const commit = (accountId: string, remember: boolean, newAccount?: StatementAccount) => {
@@ -153,6 +171,7 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
       {lead && batch ? (
         <>
           {lastCommit && <div className="rounded-lg bg-moss-50 px-3 py-2 text-sm text-moss-800">{lastCommit}</div>}
+          {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>}
           <ReviewCard
             key={`${lead.file}-${batch.length}`}
             review={lead}
@@ -163,6 +182,20 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
             onSkip={batch.length > 1 ? skipLead : undefined}
             onCommit={commit}
             onCancel={() => setBatch(null)}
+            aiSlot={
+              busy ? (
+                <div className="rounded-lg bg-sand-50 px-3 py-2 text-sm text-ink/70">{busy}</div>
+              ) : lead.format === "pdf" && lead.sourceFile && lead.method !== "ai" ? (
+                ai.ready ? (
+                  <div className="flex flex-wrap items-center gap-3 rounded-lg bg-sand-50 px-3 py-2 text-sm">
+                    <span className="text-ink/70">{lead.aiSuggested ? "The built-in parser could not read this layout." : "Not what the statement shows?"}</span>
+                    <button className="btn-secondary py-1" onClick={() => void readWithAi()}>Read with AI</button>
+                  </div>
+                ) : lead.aiSuggested ? (
+                  <AiSetupCard compact status={ai.status} onChanged={ai.refresh} />
+                ) : null
+              ) : null
+            }
           />
         </>
       ) : (
@@ -327,9 +360,11 @@ interface ReviewCardProps {
   onSkip?: () => void;
   onCommit: (accountId: string, remember: boolean, newAccount?: StatementAccount) => void;
   onCancel: () => void;
+  /** Local AI controls: a "Read with AI" offer, the setup card, or progress while it reads. */
+  aiSlot?: React.ReactNode;
 }
 
-function ReviewCard({ review, others = [], profile, onUpdate, onToggle, onSkip, onCommit, onCancel }: ReviewCardProps) {
+function ReviewCard({ review, others = [], profile, onUpdate, onToggle, onSkip, onCommit, onCancel, aiSlot }: ReviewCardProps) {
   const [accountId, setAccountId] = useState<string>(profile.accounts[0]?.id ?? "new");
   const [newName, setNewName] = useState(guessName(review));
   const [newKind, setNewKind] = useState<AccountKind>(guessKind(review));
@@ -389,6 +424,8 @@ function ReviewCard({ review, others = [], profile, onUpdate, onToggle, onSkip, 
           ))}
         </ul>
       )}
+
+      {aiSlot}
 
       {review.summary && (review.summary.openingBalance !== undefined || review.summary.closingBalance !== undefined) && (
         <div className="grid gap-3 text-sm sm:grid-cols-3">

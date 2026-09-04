@@ -314,8 +314,11 @@ export function extractSummary(text: string): PdfSummary {
   const t = text.replace(/\s+/g, " ");
   const notes: string[] = [];
   const money = "([-−(]?[$£€]?\\s?[\\d,]+\\.\\d{2}\\)?(?:\\s?(?:CR|DR))?)";
-  const open = new RegExp(`(?:beginning|opening|previous|starting|brought forward|balance forward|opening ledger|start(?:ing)? balance|balance at start)[^\\d$£€(-]{0,40}${money}`, "i").exec(t);
-  const close = new RegExp(`(?:ending|closing|new|final|carried forward|end(?:ing)? balance|balance at end|closing ledger)[^\\d$£€(-]{0,40}${money}`, "i").exec(t);
+  // Between the label and the amount there may be a date ("Beginning balance on March 1, 2026 $4,210.55"),
+  // so digits are allowed as long as they are part of a date, not a bare amount.
+  const gap = "(?:[^\\d$£€(-]|\\d{1,2}(?:,|\\s|st|nd|rd|th)|\\d{4}\\b){0,40}?";
+  const open = new RegExp(`(?:beginning|opening|previous|starting|brought forward|balance forward|opening ledger|start(?:ing)? balance|balance at start)${gap}${money}`, "i").exec(t);
+  const close = new RegExp(`(?:ending|closing|new|final|carried forward|end(?:ing)? balance|balance at end|closing ledger)${gap}${money}`, "i").exec(t);
   const datePat = "(\\d{1,2}[\\/.-]\\d{1,2}[\\/.-]\\d{2,4}|\\d{1,2} [A-Za-z]{3,9},? \\d{4}|[A-Za-z]{3,9} \\d{1,2},? \\d{4}|\\d{4}-\\d{2}-\\d{2})";
   const period = new RegExp(`(?:statement period|period|from|for the period)\\D{0,20}${datePat}\\s*(?:to|through|-|–|—)\\s*${datePat}`, "i").exec(t) ?? new RegExp(`${datePat}\\s*(?:to|through|-|–|—)\\s*${datePat}`, "i").exec(t);
 

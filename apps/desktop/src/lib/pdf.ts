@@ -14,6 +14,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mi
 export interface PdfExtraction {
   items: PdfTextItem[];
   text: string;
+  /** Flat text of each page, in order, for page-by-page AI reading. */
+  pageTexts: string[];
   pages: number;
   method: "text" | "ocr" | "mixed";
 }
@@ -51,6 +53,7 @@ export async function extractPdf(file: File, onProgress?: (msg: string) => void)
   return {
     items,
     text: pageTexts.join("\n\n"),
+    pageTexts,
     pages: pdf.numPages,
     method: ocrPages === 0 ? "text" : ocrPages === pdf.numPages ? "ocr" : "mixed",
   };

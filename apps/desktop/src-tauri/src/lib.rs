@@ -1,7 +1,9 @@
 mod hijri;
+mod llm;
 mod prices;
 mod store;
 
+use llm::{AiPage, AiStatus, LlmState};
 use store::{StoreState, StoreStatus};
 use tauri::Manager;
 
@@ -25,6 +27,49 @@ fn store_save(profile: serde_json::Value, state: tauri::State<'_, StoreState>) -
 #[tauri::command]
 fn store_delete(state: tauri::State<'_, StoreState>) -> Result<(), String> {
     store::delete(&state)
+}
+
+// --- Local AI --------------------------------------------------------------
+
+#[tauri::command]
+fn ai_status(app: tauri::AppHandle, state: tauri::State<'_, LlmState>) -> AiStatus {
+    llm::status(&llm::data_dir(&app), &state)
+}
+
+/// Download whatever is missing: the engine, the model, or both.
+#[tauri::command]
+async fn ai_setup(app: tauri::AppHandle, state: tauri::State<'_, LlmState>) -> Result<AiStatus, String> {
+    let dir = llm::data_dir(&app);
+    let before = llm::status(&dir, &state);
+    if !before.engine_ready {
+        llm::download_engine(&dir, &app).await?;
+    }
+    if !before.model_ready {
+        llm::download_model(&dir, &app).await?;
+    }
+    Ok(llm::status(&dir, &state))
+}
+
+#[tauri::command]
+async fn ai_extract_page(
+    text: String,
+    period_start: Option<String>,
+    period_end: Option<String>,
+    previous_section: Option<String>,
+    currency: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, LlmState>,
+) -> Result<AiPage, String> {
+    llm::start_server(&llm::data_dir(&app), &state)?;
+    llm::wait_for_server().await?;
+    llm::extract_page(&text, period_start.as_deref(), period_end.as_deref(), previous_section.as_deref(), &currency).await
+}
+
+#[tauri::command]
+fn ai_set_gpu(enabled: bool, state: tauri::State<'_, LlmState>) {
+    llm::set_force_cpu(&state, !enabled);
+    // The next extraction restarts the engine with the new setting.
+    llm::stop_server(&state);
 }
 
 // --- Prices ----------------------------------------------------------------
@@ -63,13 +108,14 @@ fn hijri_month_names() -> Vec<&'static str> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .setup(|app| {
             let data_dir = app
                 .path()
                 .app_data_dir()
                 .expect("app data directory unavailable");
             app.manage(StoreState::new(&data_dir));
+            app.manage(LlmState::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -77,6 +123,10 @@ pub fn run() {
             store_load,
             store_save,
             store_delete,
+            ai_status,
+            ai_setup,
+            ai_extract_page,
+            ai_set_gpu,
             fetch_prices,
             hijri_from_gregorian,
             hijri_to_gregorian,
@@ -84,6 +134,12 @@ pub fn run() {
             hijri_previous_occurrence,
             hijri_month_names,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            llm::stop_server(&handle.state::<LlmState>());
+        }
+    });
 }

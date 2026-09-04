@@ -7,9 +7,43 @@
  * why the real app converts in Rust.
  */
 import type { MetalPrices } from "@hawl/core-types";
-import type { HijriDate, StoreStatus } from "./commands";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import type { AiPage, AiStatus, DownloadProgress, HijriDate, StoreStatus } from "./commands";
 
 const KEY = "hawl-mock-store";
+const AI_KEY = "hawl-mock-ai";
+const progressListeners = new Set<(p: DownloadProgress) => void>();
+
+/**
+ * Stand-in for the model: pulls "MM/DD[/YY] description amount" runs out of the page text and
+ * takes the sign from the nearest section heading, the way a US bank statement is laid out.
+ */
+function mockExtract(text: string, periodStart: string | null): AiPage {
+  const year = periodStart ? Number(periodStart.slice(0, 4)) : new Date().getFullYear();
+  const rows: AiPage["rows"] = [];
+  const re = /(\d{2})\/(\d{2})(?:\/(\d{2,4}))?\s+(.+?)\s+(-?\$?[\d,]+\.\d{2})(?=\s+\d{2}\/\d{2}|\s+Total|\s+Withdrawals|\s+Deposits|\s+Checks|\s+Service|\s*$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const before = text.slice(0, m.index).toLowerCase();
+    const lastOut = Math.max(before.lastIndexOf("withdrawal"), before.lastIndexOf("subtraction"), before.lastIndexOf("checks"), before.lastIndexOf("service fee"));
+    const lastIn = Math.max(before.lastIndexOf("deposit"), before.lastIndexOf("addition"));
+    const raw = Number(m[5]!.replace(/[$,]/g, ""));
+    const amount = lastOut > lastIn && raw > 0 ? -raw : raw;
+    const y = m[3] ? (m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])) : year;
+    rows.push({ date: `${y}-${m[1]}-${m[2]}`, description: m[4]!.trim(), amount, balance: null });
+  }
+  const bal = (label: RegExp) => {
+    const hit = label.exec(text);
+    return hit ? Number(hit[1]!.replace(/[$,]/g, "")) : null;
+  };
+  return {
+    rows,
+    periodStart: null,
+    periodEnd: null,
+    openingBalance: bal(/Beginning balance on [^$]*\$([\d,]+\.\d{2})/i),
+    closingBalance: bal(/Ending balance on [^$]*\$([\d,]+\.\d{2})/i),
+  };
+}
 
 const MONTHS = ["Muharram", "Safar", "Rabi' al-Awwal", "Rabi' al-Thani", "Jumada al-Ula", "Jumada al-Akhirah", "Rajab", "Sha'ban", "Ramadan", "Shawwal", "Dhu al-Qa'dah", "Dhu al-Hijjah"];
 
@@ -61,6 +95,27 @@ export const mock = {
   storeDelete: () => {
     localStorage.removeItem(KEY);
     return delay(undefined);
+  },
+  // Local AI: "ready" once the mock setup ran (or localStorage hawl-mock-ai = "ready").
+  aiStatus: (): Promise<AiStatus> => {
+    const ready = localStorage.getItem(AI_KEY) === "ready";
+    return delay({ engineReady: ready, modelReady: ready, modelLabel: "Qwen2.5 3B Instruct (browser mock)", gpuDetected: false, cudaBuild: false, usingGpu: false, running: false });
+  },
+  aiSetup: async (): Promise<AiStatus> => {
+    for (let i = 1; i <= 5; i++) {
+      await delay(undefined, 150);
+      progressListeners.forEach((cb) => cb({ stage: "AI model (browser mock)", downloaded: i * 400 * 1024 * 1024, total: 2000 * 1024 * 1024, percent: i * 20 }));
+    }
+    localStorage.setItem(AI_KEY, "ready");
+    return mock.aiStatus();
+  },
+  aiExtractPage: (text: string, periodStart: string | null): Promise<AiPage> => delay(mockExtract(text, periodStart), 200),
+  aiSetGpu: () => delay(undefined),
+  onAiProgress: (cb: (p: DownloadProgress) => void): Promise<UnlistenFn> => {
+    progressListeners.add(cb);
+    return Promise.resolve(() => {
+      progressListeners.delete(cb);
+    });
   },
   fetchPrices: (currency: string): Promise<MetalPrices> =>
     delay({ currency, goldPerGram: 144.32, silverPerGram: 2.16, asOf: new Date().toISOString().slice(0, 10), source: "browser mock (fixed)" }, 300),
