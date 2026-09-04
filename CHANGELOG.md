@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 (2026-09-04)
+
+- Import a whole year of statements at once. Drop or choose many files; the first is reviewed
+  as before and its columns and account apply to every file with the same layout. A table lists
+  the rest with rows found and whether balances verified. Untick a file that belongs to another
+  account and it comes back for its own review. Duplicates across files are still skipped.
+- Drag and drop works in the desktop app. Tauri's own drop handler was swallowing the drop
+  before the page saw it.
+
 ## 0.2.0 (2026-09-04)
 
 - The passphrase is gone. Hawl is opened about once a year, and a forgotten passphrase with no

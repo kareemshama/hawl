@@ -24,8 +24,40 @@ const KINDS: { value: AccountKind; label: string }[] = [
   { value: "other", label: "Other cash account" },
 ];
 
+/** One file in a batch. The first item is the one under review; the rest follow its columns and account. */
+export interface BatchItem {
+  review: Review;
+  include: boolean;
+}
+
+/** True when a review has something worth importing: rows, or at least a statement balance. */
+function hasContent(r: Review): boolean {
+  return r.transactions.length > 0 || r.summary?.openingBalance !== undefined || r.summary?.closingBalance !== undefined;
+}
+
+function tableWidth(r: Review): number | null {
+  if (!r.table) return null;
+  return r.table.headers?.length ?? Math.max(0, ...r.table.rows.map((row) => row.length));
+}
+
+/** Re-run another file under the lead's columns when the layouts match; otherwise leave it on its own guess. */
+function followLead(lead: Review, other: Review): Review {
+  if (!lead.mapping || !other.table || !lead.table) return other;
+  if (tableWidth(lead) !== tableWidth(other)) return other;
+  return applyMapping(other, lead.mapping);
+}
+
+/** Build a batch: the first file leads, the others follow its columns. */
+function makeBatch(reviews: Review[]): BatchItem[] {
+  const [first, ...rest] = reviews;
+  if (!first) return [];
+  const lead = first.guess?.mapping && first.table ? applyMapping(first, first.guess.mapping) : first;
+  const others = rest.map((r) => followLead(lead, r));
+  return [lead, ...others].map((review) => ({ review, include: hasContent(review) }));
+}
+
 export default function StatementsPanel({ profile, onChange, series, anniversary, nisabValue, windowStart }: Props) {
-  const [review, setReview] = useState<Review | null>(null);
+  const [batch, setBatch] = useState<BatchItem[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -33,30 +65,81 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = async (files: FileList | File[]) => {
-    const file = Array.from(files)[0];
-    if (!file) return;
+    const list = Array.from(files);
+    if (list.length === 0) return;
     setError(null);
     setLastCommit(null);
-    setBusy(`Reading ${file.name}`);
+    const reviews: Review[] = [];
+    const failed: string[] = [];
     try {
-      const r = await analyzeFile(file, profile.currency, (m) => setBusy(m));
-      setReview(r);
-    } catch (e) {
-      setError(String(e instanceof Error ? e.message : e));
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i]!;
+        const prefix = list.length === 1 ? `Reading ${file.name}` : `Reading ${i + 1} of ${list.length}: ${file.name}`;
+        setBusy(prefix);
+        try {
+          reviews.push(await analyzeFile(file, profile.currency, (m) => setBusy(`${prefix} (${m.toLowerCase()})`)));
+        } catch (e) {
+          failed.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
     } finally {
       setBusy(null);
     }
+    if (failed.length > 0) setError(failed.length === 1 ? failed[0]! : `${failed.length} files could not be read:\n${failed.join("\n")}`);
+    if (reviews.length > 0) setBatch(makeBatch(reviews));
+  };
+
+  /** The lead review changed (columns edited). Re-run the followers under the new columns. */
+  const updateLead = (lead: Review) => {
+    setBatch((items) => {
+      if (!items || items.length === 0) return items;
+      const rest = items.slice(1).map((it) => {
+        const review = followLead(lead, it.review);
+        // Keep the user's untick; otherwise follow whether the file has anything to import.
+        return { review, include: hasContent(review) && (it.include || !hasContent(it.review)) };
+      });
+      return [{ review: lead, include: true }, ...rest];
+    });
+  };
+
+  const toggleItem = (index: number, include: boolean) => {
+    setBatch((items) => (items ? items.map((it, i) => (i === index ? { ...it, include } : it)) : items));
+  };
+
+  /** Drop the lead file and let the next one take over its own review. */
+  const skipLead = () => {
+    setBatch((items) => {
+      if (!items) return items;
+      const rest = items.slice(1);
+      return rest.length > 0 ? makeBatch(rest.map((it) => it.review)) : null;
+    });
   };
 
   const commit = (accountId: string, remember: boolean, newAccount?: StatementAccount) => {
-    if (!review) return;
+    if (!batch || batch.length === 0) return;
     let p = profile;
     if (newAccount) p = { ...p, accounts: [...p.accounts, newAccount] };
-    const { profile: next, added, skipped } = commitImport(p, review, accountId, remember);
-    onChange(next);
-    setReview(null);
-    setLastCommit(`${added} transaction${added === 1 ? "" : "s"} added${skipped ? `, ${skipped} already present skipped` : ""}.`);
+    const chosen = batch.filter((it) => it.include);
+    const rest = batch.filter((it) => !it.include && hasContent(it.review));
+    const empty = batch.filter((it) => !it.include && !hasContent(it.review));
+    let added = 0;
+    let skipped = 0;
+    chosen.forEach((it, i) => {
+      const r = commitImport(p, it.review, accountId, remember && i === 0);
+      p = r.profile;
+      added += r.added;
+      skipped += r.skipped;
+    });
+    onChange(p);
+    const files = chosen.length === 1 ? "" : ` from ${chosen.length} statements`;
+    const parts = [`${added} transaction${added === 1 ? "" : "s"} added${files}${skipped ? `, ${skipped} already present skipped` : ""}.`];
+    if (rest.length > 0) parts.push(`${rest.length} file${rest.length === 1 ? "" : "s"} left to review.`);
+    if (empty.length > 0) parts.push(`Nothing to import in ${empty.map((it) => it.review.file).join(", ")}.`);
+    setLastCommit(parts.join(" "));
+    setBatch(rest.length > 0 ? makeBatch(rest.map((it) => it.review)) : null);
   };
+
+  const lead = batch?.[0]?.review ?? null;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -67,8 +150,21 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
         </p>
       </header>
 
-      {review ? (
-        <ReviewCard review={review} profile={profile} onUpdate={setReview} onCommit={commit} onCancel={() => setReview(null)} />
+      {lead && batch ? (
+        <>
+          {lastCommit && <div className="rounded-lg bg-moss-50 px-3 py-2 text-sm text-moss-800">{lastCommit}</div>}
+          <ReviewCard
+            key={`${lead.file}-${batch.length}`}
+            review={lead}
+            others={batch.slice(1)}
+            profile={profile}
+            onUpdate={updateLead}
+            onToggle={(i, inc) => toggleItem(i + 1, inc)}
+            onSkip={batch.length > 1 ? skipLead : undefined}
+            onCommit={commit}
+            onCancel={() => setBatch(null)}
+          />
+        </>
       ) : (
         <div
           onDragOver={(e) => {
@@ -89,10 +185,21 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
           onClick={() => fileRef.current?.click()}
           className={`card flex cursor-pointer flex-col items-center justify-center gap-2 border-2 border-dashed py-10 text-center transition-colors ${dragOver ? "border-moss-400 bg-moss-50" : "border-sand-300 hover:bg-sand-50"}`}
         >
-          <input ref={fileRef} type="file" accept=".pdf,.csv,.ofx,.qfx,.qif,.txt" className="hidden" data-testid="statement-file" onChange={(e) => e.target.files && void handleFiles(e.target.files)} />
-          <div className="font-medium">{busy ?? "Drop a statement here, or click to choose"}</div>
-          <div className="text-sm text-ink/60">One file at a time. Nothing is uploaded anywhere.</div>
-          {error && <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>}
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            accept=".pdf,.csv,.ofx,.qfx,.qif,.txt"
+            className="hidden"
+            data-testid="statement-file"
+            onChange={(e) => {
+              if (e.target.files) void handleFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <div className="font-medium">{busy ?? "Drop statements here, or click to choose"}</div>
+          <div className="text-sm text-ink/60">A whole year of files at once is fine. Nothing is uploaded anywhere.</div>
+          {error && <div className="mt-2 whitespace-pre-line rounded-lg bg-red-50 px-3 py-2 text-left text-sm text-red-800">{error}</div>}
           {lastCommit && <div className="mt-2 rounded-lg bg-moss-50 px-3 py-2 text-sm text-moss-800">{lastCommit}</div>}
         </div>
       )}
@@ -210,7 +317,19 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
   );
 }
 
-function ReviewCard({ review, profile, onUpdate, onCommit, onCancel }: { review: Review; profile: Profile; onUpdate: (r: Review) => void; onCommit: (accountId: string, remember: boolean, newAccount?: StatementAccount) => void; onCancel: () => void }) {
+interface ReviewCardProps {
+  review: Review;
+  /** The other files in the batch, following this review's columns and account. */
+  others?: BatchItem[];
+  profile: Profile;
+  onUpdate: (r: Review) => void;
+  onToggle?: (otherIndex: number, include: boolean) => void;
+  onSkip?: () => void;
+  onCommit: (accountId: string, remember: boolean, newAccount?: StatementAccount) => void;
+  onCancel: () => void;
+}
+
+function ReviewCard({ review, others = [], profile, onUpdate, onToggle, onSkip, onCommit, onCancel }: ReviewCardProps) {
   const [accountId, setAccountId] = useState<string>(profile.accounts[0]?.id ?? "new");
   const [newName, setNewName] = useState(guessName(review));
   const [newKind, setNewKind] = useState<AccountKind>(guessKind(review));
@@ -219,6 +338,8 @@ function ReviewCard({ review, profile, onUpdate, onCommit, onCancel }: { review:
   const first = review.transactions[0];
   const last = review.transactions[review.transactions.length - 1];
   const canCommit = review.transactions.length > 0 || review.summary?.closingBalance !== undefined;
+  const includedOthers = others.filter((o) => o.include).length;
+  const importCount = 1 + includedOthers;
 
   const setMap = (patch: Partial<ColumnMapping>) => {
     if (!review.mapping && !review.table) return;
@@ -325,6 +446,50 @@ function ReviewCard({ review, profile, onUpdate, onCommit, onCancel }: { review:
         </div>
       )}
 
+      {others.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-medium">Also in this batch ({others.length} more file{others.length === 1 ? "" : "s"})</h4>
+          <p className="text-xs text-ink/60">These go into the same account, using the columns above where the layout matches. Untick any that belong elsewhere; they come back for their own review afterwards.</p>
+          <div className="overflow-x-auto rounded-lg border border-sand-200">
+            <table className="w-full text-sm">
+              <thead className="bg-sand-50 text-left text-xs uppercase text-ink/50">
+                <tr>
+                  <th className="px-3 py-2"></th>
+                  <th className="px-3 py-2">File</th>
+                  <th className="px-3 py-2">Period</th>
+                  <th className="px-3 py-2 text-right">Rows</th>
+                  <th className="px-3 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {others.map((o, i) => {
+                  const r = o.review;
+                  const dates = r.transactions.map((t) => t.date).sort();
+                  const period = r.hint.periodStart && r.hint.periodEnd ? `${r.hint.periodStart} to ${r.hint.periodEnd}` : dates.length > 0 ? `${dates[0]} to ${dates[dates.length - 1]}` : "";
+                  const content = hasContent(r);
+                  const status = !content ? "Nothing recognized" : r.balanceVerified ? "Balances verified" : r.transactions.length === 0 ? "Balance only" : "Balances not verified";
+                  const tone = !content ? "text-red-700" : r.balanceVerified ? "text-moss-700" : "text-gold-600";
+                  return (
+                    <tr key={`${r.file}-${i}`} className={`border-t border-sand-100 ${o.include ? "" : "text-ink/40"}`}>
+                      <td className="px-3 py-1.5">
+                        <input type="checkbox" className="h-4 w-4 accent-moss-700" checked={o.include} disabled={!content} onChange={(e) => onToggle?.(i, e.target.checked)} aria-label={`Include ${r.file}`} />
+                      </td>
+                      <td className="max-w-xs truncate px-3 py-1.5" title={r.file}>{r.file}</td>
+                      <td className="num px-3 py-1.5 text-ink/70">{period}</td>
+                      <td className="num px-3 py-1.5 text-right">{r.transactions.length}</td>
+                      <td className={`px-3 py-1.5 text-xs ${tone}`} title={[...r.warnings].join("\n")}>
+                        {status}
+                        {r.warnings.length > 0 && content ? ` (${r.warnings.length} note${r.warnings.length === 1 ? "" : "s"})` : ""}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label className="label">Account</label>
@@ -359,7 +524,8 @@ function ReviewCard({ review, profile, onUpdate, onCommit, onCancel }: { review:
         </label>
       )}
 
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
+        {onSkip && <button className="btn-ghost mr-auto" onClick={onSkip}>Skip this file</button>}
         <button className="btn-secondary" onClick={onCancel}>Cancel</button>
         <button
           className="btn-primary"
@@ -371,7 +537,7 @@ function ReviewCard({ review, profile, onUpdate, onCommit, onCancel }: { review:
             } else onCommit(accountId, remember);
           }}
         >
-          Import
+          {importCount > 1 ? `Import ${importCount} statements` : "Import"}
         </button>
       </div>
     </div>

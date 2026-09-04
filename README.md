@@ -3,7 +3,7 @@
   <h1>Hawl</h1>
   <p>A local-first zakat calculator for Windows and macOS.</p>
   <p>
-    <a href="https://github.com/kareemshama/hawl/releases"><img src="https://img.shields.io/badge/release-0.2.0-2f7d4a" alt="Release" /></a>
+    <a href="https://github.com/kareemshama/hawl/releases"><img src="https://img.shields.io/badge/release-0.3.0-2f7d4a" alt="Release" /></a>
     <img src="https://img.shields.io/badge/license-MIT-b8860b" alt="MIT" />
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-1b1f1c" alt="Windows and macOS" />
     <img src="https://img.shields.io/badge/data-stays%20on%20your%20computer-2f7d4a" alt="Local first" />
@@ -18,9 +18,9 @@ rule is written down with its sources in [docs/RULES.md](docs/RULES.md).
 
 ## What it does
 
-- **Reads statements.** PDF, CSV, OFX/QFX, and QIF. Column layouts are detected automatically and
-  every row is cross-checked against the running balance. The same transaction from two files is
-  counted once.
+- **Reads statements.** PDF, CSV, OFX/QFX, and QIF, a whole year of files at once. Column layouts
+  are detected automatically and every row is cross-checked against the running balance. The same
+  transaction from two files is counted once.
 - **Shows what you carried through the year.** A daily balance across all accounts from the start
   of the hawl to the anniversary, the lowest point, the balance on the anniversary, and whether the
   total ever dipped below nisab.
