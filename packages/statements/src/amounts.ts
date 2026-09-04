@@ -25,10 +25,11 @@ export function parseAmount(raw: string | undefined | null): number | null {
     negative = true;
     s = s.slice(0, -1);
   }
-  // Leading sign, including unicode minus and a plus.
+  // Leading sign, including unicode minus and a plus. Any negative marker means negative;
+  // markers never cancel each other ("-100.00-" and "(-100.00)" are both money out).
   s = s.replace(/^\s*[+]/, "");
   if (/^\s*[-−–]/.test(s)) {
-    negative = !negative;
+    negative = true;
     s = s.replace(/^\s*[-−–]\s*/, "");
   }
   // Currency symbols, codes, and spaces.

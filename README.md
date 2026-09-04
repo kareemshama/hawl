@@ -3,7 +3,7 @@
   <h1>Hawl</h1>
   <p>A local-first zakat calculator for Windows and macOS.</p>
   <p>
-    <a href="https://github.com/kareemshama/hawl/releases"><img src="https://img.shields.io/badge/release-0.1.0-2f7d4a" alt="Release" /></a>
+    <a href="https://github.com/kareemshama/hawl/releases"><img src="https://img.shields.io/badge/release-0.1.1-2f7d4a" alt="Release" /></a>
     <img src="https://img.shields.io/badge/license-MIT-b8860b" alt="MIT" />
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-1b1f1c" alt="Windows and macOS" />
     <img src="https://img.shields.io/badge/data-stays%20on%20your%20computer-2f7d4a" alt="Local first" />

@@ -154,3 +154,32 @@ test("parseIsoDate rejects impossible calendar dates", () => {
   assert.throws(() => parseIsoDate("2026-13-01"));
   assert.equal(parseIsoDate("2024-02-29"), Date.UTC(2024, 1, 29));
 });
+
+test("R2.1 a hawl start less than a year before the anniversary is not complete, whatever the balances say", () => {
+  const r = calculateZakat(baseInput(resolveSettings("hanafi"), {
+    assets: [{ kind: "cash", id: "c", label: "S", amount: 10000 }],
+    hawlStart: addDays(A, -1),
+  }));
+  assert.equal(r.verdict, "hawl-not-complete");
+  assert.equal(r.zakatDue, 0);
+  assert.equal(r.hawl?.proposedAnniversary, addDays(addDays(A, -1), LUNAR_YEAR_DAYS));
+  assert.match(r.hawl?.note ?? "", /Only 1 days have passed/);
+});
+
+test("R2.2 days without balance history are counted and reported, not treated as above nisab", () => {
+  // History only covers the last 30 days of a 355-day window.
+  const series = flat(LUNAR_YEAR_DAYS, 10000).slice(-30);
+  const s = evaluateHawl({ settings: resolveSettings("shafii"), nisabValue: 595, anniversary: A, series });
+  assert.equal(s.complete, true);
+  assert.equal(s.checkedDays, 30);
+  assert.equal(s.uncheckedDays, LUNAR_YEAR_DAYS + 1 - 30);
+  assert.equal(s.estimated, true);
+  assert.match(s.note, /325 of 355 days .* not checked/);
+  assert.doesNotMatch(s.note, /for the whole hawl/);
+});
+
+test("empty history note no longer claims the user vouched for the hawl", () => {
+  const s = evaluateHawl({ settings: resolveSettings("hanafi"), nisabValue: 595, anniversary: A });
+  assert.match(s.note, /fixed-anniversary practice/);
+  assert.equal(s.uncheckedDays, LUNAR_YEAR_DAYS + 1);
+});

@@ -137,15 +137,54 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
                     {a.kind === "brokerage" && " (not cash; enter holdings under Assets)"}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <select className="input w-auto py-1" value={a.kind} onChange={(e) => onChange({ ...profile, accounts: profile.accounts.map((x) => (x.id === a.id ? { ...x, kind: e.target.value as AccountKind } : x)) })} aria-label={`Kind of ${a.name}`}>
                     {KINDS.map((k) => (
                       <option key={k.value} value={k.value}>{k.label}</option>
                     ))}
                   </select>
+                  <label className="flex items-center gap-1 text-xs text-ink/60" title="Your share of a joint account (R6.3)">
+                    share
+                    <input
+                      className="input num w-16 py-1"
+                      inputMode="decimal"
+                      aria-label={`Ownership share of ${a.name} in percent`}
+                      value={a.ownershipShare === undefined ? "" : String(Math.round(a.ownershipShare * 1000) / 10)}
+                      placeholder="100"
+                      onChange={(e) => {
+                        const v = e.target.value.trim();
+                        const n = Number(v);
+                        if (v !== "" && !(n >= 0 && n <= 100)) return;
+                        onChange({ ...profile, accounts: profile.accounts.map((x) => (x.id === a.id ? (v === "" || n === 100 ? stripKey(x, "ownershipShare") : { ...x, ownershipShare: n / 100 }) : x)) });
+                      }}
+                    />
+                    %
+                  </label>
+                  {a.currency.toUpperCase() !== profile.currency.toUpperCase() && (
+                    <label className="flex items-center gap-1 text-xs text-ink/60" title={`Units of ${profile.currency} per 1 ${a.currency} (R15.4)`}>
+                      1 {a.currency} =
+                      <input
+                        className="input num w-20 py-1"
+                        inputMode="decimal"
+                        aria-label={`Exchange rate from ${a.currency} to ${profile.currency}`}
+                        value={a.fxRateToBase === undefined ? "" : String(a.fxRateToBase)}
+                        placeholder="rate"
+                        onChange={(e) => {
+                          const v = e.target.value.trim();
+                          const n = Number(v);
+                          if (v !== "" && !(n > 0)) return;
+                          onChange({ ...profile, accounts: profile.accounts.map((x) => (x.id === a.id ? (v === "" ? stripKey(x, "fxRateToBase") : { ...x, fxRateToBase: n }) : x)) });
+                        }}
+                      />
+                      {profile.currency}
+                    </label>
+                  )}
                   <button className="btn-ghost px-3 text-red-700 hover:bg-red-50" onClick={() => onChange(removeAccount(profile, a.id))}>Remove</button>
                 </div>
               </div>
+              {a.currency.toUpperCase() !== profile.currency.toUpperCase() && a.fxRateToBase === undefined && (
+                <p className="mt-2 text-xs text-gold-600">This account is in {a.currency}. Enter the rate to {profile.currency} or it stays out of the calculation.</p>
+              )}
               {imps.length > 0 && (
                 <ul className="mt-3 divide-y divide-sand-100 text-sm">
                   {imps.map((i) => (
@@ -337,6 +376,12 @@ function ReviewCard({ review, profile, onUpdate, onCommit, onCancel }: { review:
       </div>
     </div>
   );
+}
+
+function stripKey<T extends object, K extends keyof T>(obj: T, key: K): T {
+  const copy = { ...obj };
+  delete copy[key];
+  return copy;
 }
 
 function Kv({ k, v }: { k: string; v: string }) {

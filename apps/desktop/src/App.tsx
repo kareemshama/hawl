@@ -150,14 +150,14 @@ export default function App() {
 
   const series = useMemo<SeriesResult | null>(() => {
     if (!anniversary || !windowStart || profile.accounts.length === 0) return null;
-    return buildBalanceSeries({ accounts: profile.accounts, transactions: profile.transactions, imports: profile.imports, from: windowStart, to: anniversary.gregorian });
-  }, [anniversary, windowStart, profile.accounts, profile.transactions, profile.imports]);
+    return buildBalanceSeries({ accounts: profile.accounts, transactions: profile.transactions, imports: profile.imports, from: windowStart, to: anniversary.gregorian, baseCurrency: profile.currency });
+  }, [anniversary, windowStart, profile.accounts, profile.transactions, profile.imports, profile.currency]);
 
   /** Cash assets taken from statement accounts on the anniversary (R4.1, R15.1). */
   const derivedAssets = useMemo<Asset[]>(() => {
     if (!anniversary) return [];
-    return deriveCashAssets({ accounts: profile.accounts, transactions: profile.transactions, imports: profile.imports, date: anniversary.gregorian }).assets;
-  }, [anniversary, profile.accounts, profile.transactions, profile.imports]);
+    return deriveCashAssets({ accounts: profile.accounts, transactions: profile.transactions, imports: profile.imports, date: anniversary.gregorian, baseCurrency: profile.currency }).assets;
+  }, [anniversary, profile.accounts, profile.transactions, profile.imports, profile.currency]);
 
   /** R2.2: after a dip, move the anniversary to the Hijri date the hawl restarted. */
   const adoptRestart = async (restartedOn: string) => {

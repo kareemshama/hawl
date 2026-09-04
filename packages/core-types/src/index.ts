@@ -258,8 +258,13 @@ export interface StatementAccount {
   institution?: string;
   kind: AccountKind;
   currency: string;
-  /** R6.3 */
+  /** R6.3: the payer's share of a joint account, 0 to 1. Defaults to 1 (sole owner). */
   ownershipShare?: number;
+  /**
+   * Units of the profile's base currency per one unit of this account's currency (R4.1, R15.4).
+   * Required when the account currency differs from the base; without it the account is left out.
+   */
+  fxRateToBase?: number;
   /** Remembered column mapping for this bank's CSV or PDF layout. */
   mapping?: ColumnMapping;
 }
@@ -368,6 +373,8 @@ export interface HawlStatus {
   /** Day the current (possibly restarted) hawl began. Equals restartedOn when a dip occurred. */
   effectiveStart: IsoDate;
   checkedDays: number;
+  /** Days inside the window with no balance history. Dips on those days cannot be seen. */
+  uncheckedDays: number;
   /** Number of separate dips below nisab found under the continuous rule. */
   dipCount: number;
   lowestTotal?: number;

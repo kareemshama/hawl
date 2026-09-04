@@ -64,7 +64,7 @@ export default function YearsPanel({ profile, settings, prices, current, onChang
     const missingByYear: Record<number, string[]> = {};
     const estimatedPrice: Record<number, boolean> = {};
     for (const r of rows) {
-      const derived = deriveCashAssets({ accounts: profile.accounts, transactions: profile.transactions, imports: profile.imports, date: r.date.gregorian });
+      const derived = deriveCashAssets({ accounts: profile.accounts, transactions: profile.transactions, imports: profile.imports, date: r.date.gregorian, baseCurrency: profile.currency });
       missingByYear[r.year] = derived.missing.map((a) => a.name);
       const o = priceOverrides[r.year];
       const gold = o && Number(o.gold) > 0 ? Number(o.gold) : prices.goldPerGram;

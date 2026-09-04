@@ -129,7 +129,9 @@ export function valueAsset(asset: Asset, ctx: Ctx): Trace {
       if (asset.doubtfulReceivables) parts.push(`doubtful receivables ${round2(asset.doubtfulReceivables)} excluded`);
       if (asset.fixedAssets) parts.push(`fixed assets ${round2(asset.fixedAssets)} excluded`);
       if (net < 0) {
-        ctx.warnings.push(`${asset.label}: business liabilities exceed zakatable business assets; the business contributes zero and the shortfall is not deducted from personal wealth.`);
+        ctx.warnings.push(
+          `${asset.label}: short-term liabilities exceed the business's zakatable assets by ${round2(-net)}. The business contributes zero here. If you are personally liable for its debts (sole trader or partner), add ${round2(-net)} as a debt already due under Liabilities so it reduces your personal wealth (R5.1). A company's debts are not yours.`,
+        );
       }
       return finish(gross, net, ["R12.1", "R12.2", "R12.3"], { note: parts.join(", ") });
     }

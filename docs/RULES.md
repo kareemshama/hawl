@@ -129,8 +129,10 @@ IslamQA, SeekersGuidance, Joe Bradford.
   The app supports a household mode with a per-person madhab flag for this reason.
   Sources: [ZF on children](https://www.zakat.org/are-children-and-those-lacking-mental-capacity-obligated-to-pay-zakat),
   [NZF on children's wealth](https://nzf.org.uk/knowledge/why-do-the-scholars-differ-in-relation-the-wealth-of-children/)
-- **R6.3 Joint accounts.** Liability follows actual ownership share. If undocumented, default to
-  an equal split, editable by the user.
+- **R6.3 Joint accounts.** Liability follows the actual ownership share. For an account the user
+  marks as joint, if the shares are undocumented, default to an equal split. The user records the
+  share on each account and each manually entered asset; an account with no share recorded is
+  treated as solely owned.
   Source: [NZF on joint accounts](https://nzf.org.uk/knowledge/who-is-responsible-to-pay-zakat-on-a-joint-bank-account/)
 
 ### R7. Missed years (qada)

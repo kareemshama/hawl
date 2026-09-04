@@ -18,7 +18,7 @@ export { itemsToRows, rowsToTable, extractSummary, completeYears, explodeItem } 
 export { dedupeIncoming, transactionKeys } from "./dedupe.js";
 export { deriveCashAssets, DERIVED_PREFIX } from "./derive.js";
 export type { PdfTextItem, PdfRow, PdfTableResult, PdfSummary } from "./pdf.js";
-export { buildBalanceSeries, accountBalancePoints, balanceOn, lowestPoint, isCashAccount, addDays } from "./series.js";
+export { buildBalanceSeries, accountBalancePoints, accountFactor, balanceOn, lowestPoint, isCashAccount, addDays } from "./series.js";
 export type { SeriesResult, AccountCoverage, BalancePoint } from "./series.js";
 
 /** Decide the format from the file name, falling back to content sniffing. */

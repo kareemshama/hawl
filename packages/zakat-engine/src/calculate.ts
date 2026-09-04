@@ -20,6 +20,9 @@ export function calculateZakat(input: CalculationInput): CalculationResult {
   metalPrice(prices, "gold");
   metalPrice(prices, "silver");
 
+  // settings.hijriAdjustmentDays (R2.6) is applied by the date layer that turns the Hijri
+  // anniversary into input.anniversary.gregorian; the arithmetic here never touches it.
+
   // Nisab and rate (R1, R3)
   const nisab = computeNisab(settings, prices);
   traces.push(nisabTrace(nisab, prices));

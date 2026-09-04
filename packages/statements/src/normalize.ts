@@ -62,13 +62,21 @@ export function tableToTransactions(table: Table, mapping: ColumnMapping, opts: 
     return { transactions: [], warnings: ["No rows with both a date and an amount."], balanceVerified: false, mismatches: [], skipped };
   }
 
-  // Statements are often newest-first. Detect by comparing first and last dates and reverse,
-  // keeping the original order for same-day rows so the balance chain stays intact.
+  // Statements are often newest-first. A file that is newest-first throughout is put right by a
+  // full reversal. Some banks list days newest-first but keep the rows within a day in posting
+  // order; for those a full reversal scrambles same-day rows and the balance chain breaks, so
+  // when the full reversal produces mismatches, a date-only reversal that keeps same-day order
+  // is tried and whichever chain fits the balances better wins.
   const first = raw[0]!;
   const last = raw[raw.length - 1]!;
   const descending = first.date > last.date;
-  const ordered = descending ? [...raw].reverse() : raw;
-  if (descending) warnings.push("Rows were newest-first and have been reordered.");
+  let ordered = raw;
+  if (descending) {
+    const full = [...raw].reverse();
+    const stable = [...raw].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    ordered = countMismatches(full, opts.openingBalance) <= countMismatches(stable, opts.openingBalance) ? full : stable;
+    warnings.push("Rows were newest-first and have been reordered.");
+  }
 
   // Reconcile signs and verify balances.
   const mismatches: number[] = [];
@@ -126,6 +134,18 @@ export function tableToTransactions(table: Table, mapping: ColumnMapping, opts: 
   }));
 
   return { transactions, warnings, balanceVerified, mismatches, skipped };
+}
+
+/** Count consecutive running-balance steps that do not match the amount between them. */
+function countMismatches(rows: { amount: number; balance: number | null }[], openingBalance?: number): number {
+  let bad = 0;
+  let prev: number | null = openingBalance ?? null;
+  for (const r of rows) {
+    if (r.balance === null) continue;
+    if (prev !== null && Math.abs(Math.abs(round2(r.balance - prev)) - Math.abs(r.amount)) >= 0.011) bad++;
+    prev = r.balance;
+  }
+  return bad;
 }
 
 export function hashString(s: string): string {
