@@ -18,9 +18,29 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
-const MODEL_URL: &str = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf";
-const MODEL_FILENAME: &str = "qwen2.5-3b-instruct-q4_k_m.gguf";
-pub const MODEL_LABEL: &str = "Qwen2.5 3B Instruct (Q4_K_M, about 2 GB)";
+pub struct ModelSpec {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub file: &'static str,
+    pub url: &'static str,
+}
+
+/// Models the app knows how to fetch. The 3B one runs anywhere; the 7B one is far more reliable
+/// on dense pages but wants a graphics card.
+pub const MODELS: &[ModelSpec] = &[
+    ModelSpec {
+        id: "3b",
+        label: "Qwen2.5 3B Instruct, about 2 GB, runs on any computer",
+        file: "qwen2.5-3b-instruct-q4_k_m.gguf",
+        url: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
+    },
+    ModelSpec {
+        id: "7b",
+        label: "Qwen2.5 7B Instruct, about 4.7 GB, best with a graphics card",
+        file: "qwen2.5-7b-instruct-q4_k_m.gguf",
+        url: "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+    },
+];
 pub const LLAMA_SERVER_PORT: u16 = 39282;
 const USER_AGENT: &str = "hawl/0.4";
 
@@ -29,10 +49,20 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct ModelChoice {
+    pub id: String,
+    pub label: String,
+    pub ready: bool,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AiStatus {
     pub engine_ready: bool,
     pub model_ready: bool,
+    pub model: String,
     pub model_label: String,
+    pub model_choices: Vec<ModelChoice>,
     pub gpu_detected: bool,
     pub cuda_build: bool,
     pub using_gpu: bool,
@@ -68,6 +98,9 @@ pub struct AiRow {
 pub struct AiPage {
     #[serde(default)]
     pub rows: Vec<AiRow>,
+    /// The answer hit the output limit and was cut; the rows are what could be salvaged.
+    #[serde(default)]
+    pub truncated: bool,
     #[serde(default)]
     pub period_start: Option<String>,
     #[serde(default)]
@@ -93,8 +126,32 @@ pub fn data_dir(app: &AppHandle) -> PathBuf {
     app.path().app_data_dir().expect("app data directory unavailable")
 }
 
+fn model_file(data_dir: &Path, spec: &ModelSpec) -> PathBuf {
+    data_dir.join("models").join(spec.file)
+}
+
+fn choice_file(data_dir: &Path) -> PathBuf {
+    data_dir.join("ai.json")
+}
+
+/// The model in use: the saved choice, else 7B when an NVIDIA card is present, else 3B.
+pub fn selected_model(data_dir: &Path) -> &'static ModelSpec {
+    let saved = std::fs::read_to_string(choice_file(data_dir))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v["model"].as_str().map(str::to_string));
+    let id = saved.unwrap_or_else(|| if has_nvidia_gpu() { "7b".into() } else { "3b".into() });
+    MODELS.iter().find(|m| m.id == id).unwrap_or(&MODELS[0])
+}
+
+pub fn set_model(data_dir: &Path, id: &str) -> Result<(), String> {
+    let spec = MODELS.iter().find(|m| m.id == id).ok_or_else(|| format!("Unknown model {id}"))?;
+    std::fs::create_dir_all(data_dir).map_err(|e| e.to_string())?;
+    std::fs::write(choice_file(data_dir), serde_json::json!({ "model": spec.id }).to_string()).map_err(|e| format!("Cannot save the model choice: {e}"))
+}
+
 fn model_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("models").join(MODEL_FILENAME)
+    model_file(data_dir, selected_model(data_dir))
 }
 
 fn server_dir(data_dir: &Path) -> PathBuf {
@@ -131,10 +188,16 @@ fn is_running(state: &LlmState) -> bool {
 pub fn status(data_dir: &Path, state: &LlmState) -> AiStatus {
     let cuda_build = has_cuda_build(data_dir);
     let force_cpu = state.force_cpu.lock().map(|v| *v).unwrap_or(false);
+    let spec = selected_model(data_dir);
     AiStatus {
         engine_ready: server_path(data_dir).exists(),
-        model_ready: model_path(data_dir).exists(),
-        model_label: MODEL_LABEL.to_string(),
+        model_ready: model_file(data_dir, spec).exists(),
+        model: spec.id.to_string(),
+        model_label: spec.label.to_string(),
+        model_choices: MODELS
+            .iter()
+            .map(|m| ModelChoice { id: m.id.to_string(), label: m.label.to_string(), ready: model_file(data_dir, m).exists() })
+            .collect(),
         gpu_detected: has_nvidia_gpu(),
         cuda_build,
         using_gpu: cuda_build && !force_cpu,
@@ -338,7 +401,8 @@ pub async fn download_engine(data_dir: &Path, app: &AppHandle) -> Result<(), Str
 }
 
 pub async fn download_model(data_dir: &Path, app: &AppHandle) -> Result<(), String> {
-    download_to_file(MODEL_URL, &model_path(data_dir), app, "AI model").await
+    let spec = selected_model(data_dir);
+    download_to_file(spec.url, &model_file(data_dir, spec), app, "AI model").await
 }
 
 pub fn start_server(data_dir: &Path, state: &LlmState) -> Result<(), String> {
@@ -367,7 +431,7 @@ pub fn start_server(data_dir: &Path, state: &LlmState) -> Result<(), String> {
         .arg("-ngl")
         .arg(gpu_layers)
         .arg("--ctx-size")
-        .arg("16384")
+        .arg("32768")
         .arg("--parallel")
         .arg("1")
         .stdout(Stdio::null())
@@ -379,10 +443,18 @@ pub fn start_server(data_dir: &Path, state: &LlmState) -> Result<(), String> {
     Ok(())
 }
 
-pub async fn wait_for_server() -> Result<(), String> {
-    let client = reqwest::Client::new();
+pub async fn wait_for_server(state: &LlmState) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(std::time::Duration::from_secs(1))
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .map_err(|e| e.to_string())?;
     let url = format!("http://127.0.0.1:{LLAMA_SERVER_PORT}/health");
-    for _ in 0..90 {
+    for _ in 0..180 {
+        if !is_running(state) {
+            return Err("The AI engine stopped right after starting. Another program may be using its port, or the graphics build could not load; in Settings, untick \"Use the graphics card\" and try again.".into());
+        }
         if let Ok(resp) = client.get(&url).send().await {
             if resp.status().is_success() {
                 return Ok(());
@@ -436,10 +508,25 @@ fn page_schema() -> serde_json::Value {
     })
 }
 
-/// Ask the model for every transaction on one page of a statement.
+/// A reply cut off by the output limit: keep the rows that were complete and close the JSON.
+fn salvage(cleaned: &str) -> Option<AiPage> {
+    let rows_at = cleaned.find("\"rows\"")?;
+    let open = rows_at + cleaned[rows_at..].find('[')?;
+    let body = &cleaned[open + 1..];
+    let mut candidate = String::from(&cleaned[..open + 1]);
+    if let Some(last) = body.rfind('}') {
+        candidate.push_str(&body[..=last]);
+    }
+    candidate.push_str("]}");
+    let mut page: AiPage = serde_json::from_str(&candidate).ok()?;
+    page.truncated = true;
+    Some(page)
+}
+
+/// Ask the model for every transaction in one chunk of statement text (a page or part of one).
 pub async fn extract_page(text: &str, period_start: Option<&str>, period_end: Option<&str>, previous_section: Option<&str>, currency: &str) -> Result<AiPage, String> {
-    // Keep the prompt inside the context window; a dense statement page is well under this.
-    let text: String = text.chars().take(14000).collect();
+    // The front end sends bounded chunks; this is only a guard for the context window.
+    let text: String = text.chars().take(20000).collect();
     let period_hint = match (period_start, period_end) {
         (Some(s), Some(e)) => format!("The statement period is {s} to {e}. Dates printed without a year fall inside that period."),
         (Some(s), None) => format!("The statement period starts {s}. Dates printed without a year fall in or after that."),
@@ -450,10 +537,10 @@ pub async fn extract_page(text: &str, period_start: Option<&str>, period_end: Op
         None => String::new(),
     };
     let prompt = format!(
-        r#"You read bank and card statements. Below is the text of ONE PAGE of a statement in {currency}. List every transaction on this page.
+        r#"You read bank and card statements. Below is the text of one page, or part of a page, of a statement in {currency}. List every transaction in it.
 
 Rules:
-- One entry per transaction, in the order printed. Keep the description as printed, trimmed.
+- One entry per transaction, in the order printed. Keep the description as printed, trimmed. Never merge or skip rows, even when descriptions repeat.
 - "date" is the transaction or posting date as YYYY-MM-DD. {period_hint}
 - "amount" is negative for money leaving the account (withdrawals, purchases, payments made, checks, fees, "subtractions", "debits") and positive for money arriving (deposits, credits, refunds, interest earned, "additions"). Statements often group rows under headings such as "Deposits and other additions" or "Withdrawals and other subtractions"; the heading decides the sign for every row under it, even when the printed number has no sign.
 - "section" is the heading the row is listed under, copied as printed (for example "Deposits and other additions", "Withdrawals and other subtractions", "Checks", "Service fees", "Payments and credits", "Purchases"), or "" when the page has no such headings.{section_hint}
@@ -471,10 +558,11 @@ Page text:
 ---"#
     );
 
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(900)).build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().no_proxy().timeout(std::time::Duration::from_secs(900)).build().map_err(|e| e.to_string())?;
+    let quick = reqwest::Client::builder().no_proxy().timeout(std::time::Duration::from_secs(2)).build().map_err(|e| e.to_string())?;
     let health = format!("http://127.0.0.1:{LLAMA_SERVER_PORT}/health");
     for _ in 0..60 {
-        if let Ok(resp) = client.get(&health).send().await {
+        if let Ok(resp) = quick.get(&health).send().await {
             if let Ok(h) = resp.json::<serde_json::Value>().await {
                 let s = h["status"].as_str().unwrap_or("");
                 if s == "ok" || s == "no slot available" {
@@ -489,7 +577,7 @@ Page text:
         "model": "local",
         "messages": [{ "role": "user", "content": prompt }],
         "temperature": 0.0,
-        "max_tokens": 6000,
+        "max_tokens": 12000,
         "response_format": { "type": "json_schema", "json_schema": { "name": "statement_page", "schema": page_schema() } }
     });
     let url = format!("http://127.0.0.1:{LLAMA_SERVER_PORT}/v1/chat/completions");
@@ -509,7 +597,14 @@ Page text:
     let content = response["choices"][0]["message"]["content"]
         .as_str()
         .ok_or_else(|| "The AI returned nothing for this page.".to_string())?;
+    let cut_off = response["choices"][0]["finish_reason"].as_str() == Some("length");
     let cleaned = content.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
-    let page: AiPage = serde_json::from_str(cleaned).map_err(|e| format!("The AI answer was not valid JSON: {e}"))?;
-    Ok(page)
+    match serde_json::from_str::<AiPage>(cleaned) {
+        Ok(mut page) => {
+            page.truncated |= cut_off;
+            Ok(page)
+        }
+        Err(_) if cut_off => salvage(cleaned).ok_or_else(|| "The AI's answer for this page was cut off before any row was complete. Try again; if it keeps happening, the page is unusually dense.".to_string()),
+        Err(e) => Err(format!("The AI answer was not valid JSON: {e}")),
+    }
 }

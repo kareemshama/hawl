@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { aiSetGpu, aiSetup, aiStatus, onAiProgress, type AiStatus, type DownloadProgress } from "../lib/commands";
+import { aiSetGpu, aiSetModel, aiSetup, aiStatus, onAiProgress, type AiStatus, type DownloadProgress } from "../lib/commands";
 
 /** Polls the local AI status once and exposes a refresh. */
 export function useAiStatus(): { status: AiStatus | null; ready: boolean; refresh: () => Promise<void> } {
@@ -68,6 +68,15 @@ export default function AiSetupCard({ status, onChanged, compact = false }: Prop
     }
   };
 
+  const chooseModel = async (id: string) => {
+    try {
+      await aiSetModel(id);
+      await onChanged();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const bar = busy && (
     <div className="space-y-1">
       <div className="text-sm">{progress ? progress.stage : "Contacting GitHub for the AI engine..."}</div>
@@ -110,14 +119,30 @@ export default function AiSetupCard({ status, onChanged, compact = false }: Prop
         Reads statements the built-in parser cannot, such as ones laid out in sections without a running balance. It runs on this computer with llama.cpp; the only network use is the one-time download.
       </p>
       {status ? (
-        <ul className="space-y-1 text-sm">
-          <li>Engine: {status.engineReady ? (status.cudaBuild ? "ready (GPU build)" : "ready (CPU build)") : "not downloaded"}</li>
-          <li>Model: {status.modelLabel}, {status.modelReady ? "ready" : "not downloaded"}</li>
-          <li>
-            Graphics card: {status.gpuDetected ? "NVIDIA GPU detected" : "none detected, runs on the CPU"}
-            {status.running ? ", engine running" : ""}
-          </li>
-        </ul>
+        <>
+          <ul className="space-y-1 text-sm">
+            <li>Engine: {status.engineReady ? (status.cudaBuild ? "ready (GPU build)" : "ready (CPU build)") : "not downloaded"}</li>
+            <li>
+              Graphics card: {status.gpuDetected ? "NVIDIA GPU detected" : "none detected, runs on the CPU"}
+              {status.running ? ", engine running" : ""}
+            </li>
+          </ul>
+          <div>
+            <label className="label" htmlFor="ai-model">Model</label>
+            <select id="ai-model" className="input" value={status.model} disabled={busy} onChange={(e) => void chooseModel(e.target.value)}>
+              {status.modelChoices.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                  {m.ready ? " (downloaded)" : ""}
+                </option>
+              ))}
+            </select>
+            <p className="help">
+              {status.gpuDetected ? "With a graphics card the 7B model is the better choice: it reads dense pages far more reliably." : "Without a graphics card the 3B model is the practical choice; the 7B one works but is slow on a CPU."}
+              {!status.modelReady && status.engineReady ? " This model is not downloaded yet." : ""}
+            </p>
+          </div>
+        </>
       ) : (
         <p className="text-sm text-ink/50">Status unavailable.</p>
       )}
@@ -129,7 +154,11 @@ export default function AiSetupCard({ status, onChanged, compact = false }: Prop
       )}
       {bar}
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
-      {!ready && !busy && <button className="btn-primary" onClick={() => void setup()}>Set up local AI</button>}
+      {!ready && !busy && (
+        <button className="btn-primary" onClick={() => void setup()}>
+          {status?.engineReady ? "Download this model" : "Set up local AI"}
+        </button>
+      )}
       {ready && <p className="help">Nothing else to do. Statements that need it are read with the AI from the Statements screen.</p>}
     </section>
   );

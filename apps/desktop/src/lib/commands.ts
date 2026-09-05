@@ -16,10 +16,19 @@ export interface HijriDate {
   gregorian: string;
 }
 
+export interface ModelChoice {
+  id: string;
+  label: string;
+  ready: boolean;
+}
+
 export interface AiStatus {
   engineReady: boolean;
   modelReady: boolean;
+  /** Id of the model in use, one of modelChoices. */
+  model: string;
   modelLabel: string;
+  modelChoices: ModelChoice[];
   gpuDetected: boolean;
   cudaBuild: boolean;
   usingGpu: boolean;
@@ -44,6 +53,8 @@ export interface AiRow {
 
 export interface AiPage {
   rows: AiRow[];
+  /** The reply hit the output limit; rows are what could be salvaged. */
+  truncated?: boolean;
   periodStart: string | null;
   periodEnd: string | null;
   openingBalance: number | null;
@@ -78,6 +89,7 @@ export type Backend = {
   aiSetup: () => Promise<AiStatus>;
   aiExtractPage: (text: string, periodStart: string | null, periodEnd: string | null, previousSection: string | null, currency: string) => Promise<AiPage>;
   aiSetGpu: (enabled: boolean) => Promise<void>;
+  aiSetModel: (id: string) => Promise<AiStatus>;
   onAiProgress: (cb: (p: DownloadProgress) => void) => Promise<UnlistenFn>;
   fetchPrices: (currency: string) => Promise<MetalPrices>;
   hijriFromGregorian: (date: string, adjust: number) => Promise<HijriDate>;
@@ -95,6 +107,7 @@ const tauri: Backend = {
   aiSetup: () => invoke<AiStatus>("ai_setup"),
   aiExtractPage: (text, periodStart, periodEnd, previousSection, currency) => invoke<AiPage>("ai_extract_page", { text, periodStart, periodEnd, previousSection, currency }),
   aiSetGpu: (enabled) => invoke<void>("ai_set_gpu", { enabled }),
+  aiSetModel: (id) => invoke<AiStatus>("ai_set_model", { id }),
   onAiProgress: (cb) => listen<DownloadProgress>("ai-download-progress", (e) => cb(e.payload)),
   fetchPrices: (currency) => invoke<MetalPrices>("fetch_prices", { currency }),
   hijriFromGregorian: (date, adjust) => invoke<HijriDate>("hijri_from_gregorian", { date, adjust }),
@@ -118,6 +131,7 @@ export const aiStatus = () => backend.aiStatus();
 export const aiSetup = () => backend.aiSetup();
 export const aiExtractPage = (text: string, periodStart: string | null, periodEnd: string | null, previousSection: string | null, currency: string) => backend.aiExtractPage(text, periodStart, periodEnd, previousSection, currency);
 export const aiSetGpu = (enabled: boolean) => backend.aiSetGpu(enabled);
+export const aiSetModel = (id: string) => backend.aiSetModel(id);
 export const onAiProgress = (cb: (p: DownloadProgress) => void) => backend.onAiProgress(cb);
 export const fetchPrices = (currency: string) => backend.fetchPrices(currency);
 export const hijriFromGregorian = (date: string, adjust: number) => backend.hijriFromGregorian(date, adjust);

@@ -7,7 +7,7 @@
  * file locally is a follow-up.
  */
 import * as pdfjsLib from "pdfjs-dist";
-import type { PdfTextItem } from "@hawl/statements";
+import { itemsToRows, type PdfTextItem } from "@hawl/statements";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 
@@ -39,7 +39,8 @@ export async function extractPdf(file: File, onProgress?: (msg: string) => void)
     }
     if (pageItems.length >= 5) {
       items.push(...pageItems);
-      pageTexts.push(pageItems.map((i) => i.str).join(" "));
+      // One physical line per text row, so headings, rows, and tables keep their shape.
+      pageTexts.push(itemsToRows(pageItems).map((r) => r.text).join("\n"));
       continue;
     }
     // No text layer: OCR the rendered page.

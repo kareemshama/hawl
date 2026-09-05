@@ -12,6 +12,7 @@ import type { AiPage, AiStatus, DownloadProgress, HijriDate, StoreStatus } from 
 
 const KEY = "hawl-mock-store";
 const AI_KEY = "hawl-mock-ai";
+const AI_MODEL_KEY = "hawl-mock-ai-model";
 const progressListeners = new Set<(p: DownloadProgress) => void>();
 
 /**
@@ -99,7 +100,16 @@ export const mock = {
   // Local AI: "ready" once the mock setup ran (or localStorage hawl-mock-ai = "ready").
   aiStatus: (): Promise<AiStatus> => {
     const ready = localStorage.getItem(AI_KEY) === "ready";
-    return delay({ engineReady: ready, modelReady: ready, modelLabel: "Qwen2.5 3B Instruct (browser mock)", gpuDetected: false, cudaBuild: false, usingGpu: false, running: false });
+    const model = localStorage.getItem(AI_MODEL_KEY) ?? "3b";
+    const choices = [
+      { id: "3b", label: "Qwen2.5 3B Instruct, about 2 GB, runs on any computer (browser mock)", ready: ready && model === "3b" },
+      { id: "7b", label: "Qwen2.5 7B Instruct, about 4.7 GB, best with a graphics card (browser mock)", ready: ready && model === "7b" },
+    ];
+    return delay({ engineReady: ready, modelReady: ready, model, modelLabel: choices.find((c) => c.id === model)!.label, modelChoices: choices, gpuDetected: false, cudaBuild: false, usingGpu: false, running: false });
+  },
+  aiSetModel: (id: string): Promise<AiStatus> => {
+    localStorage.setItem(AI_MODEL_KEY, id);
+    return mock.aiStatus();
   },
   aiSetup: async (): Promise<AiStatus> => {
     for (let i = 1; i <= 5; i++) {

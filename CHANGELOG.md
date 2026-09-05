@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.1 (2026-09-04)
+
+Fixes from the first run on real Bank of America statements, where every file failed with
+"The AI answer was not valid JSON": the model's reply was cut off by the output limit on dense
+pages.
+
+- Pages are sent to the model in pieces of about 2,000 characters, cut just before a date so no
+  transaction is split. When the model returns fewer rows than the piece plainly contains, the
+  piece is split in two and read again, down to a floor. A reply that still hits the limit is
+  salvaged up to the last complete row and the review says which pages were cut short.
+- Choice of model in Settings: Qwen2.5 3B (2 GB, any computer) or Qwen2.5 7B (4.7 GB), with 7B
+  the default when an NVIDIA card is present. On the synthetic Bank of America pages the 3B model
+  drops rows from dense lists unless pieces are small; the 7B model does not.
+- Output limit raised to 12,000 tokens and the context to 32k.
+
 ## 0.4.0 (2026-09-04)
 
 - Local AI for statements the built-in parser cannot read, such as Bank of America's layout with

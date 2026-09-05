@@ -119,7 +119,9 @@ export async function analyzeFile(file: File, currency: string, onProgress?: (m:
   if (guess.mapping) review = applyMapping(review, guess.mapping);
 
   const failed = !guess.mapping || review.transactions.length === 0;
-  if (failed && aiMode === "auto" && opts.aiReady) {
+  // Rows were found but the statement's own totals do not vouch for them: the AI reads it instead.
+  const weak = !failed && summary.openingBalance !== undefined && summary.closingBalance !== undefined && !review.balanceVerified;
+  if ((failed || weak) && aiMode === "auto" && opts.aiReady) {
     return aiReview({ ...base, sourceFile: file }, extraction, summary, currency, onProgress);
   }
   if (!guess.mapping) {
@@ -129,7 +131,7 @@ export async function analyzeFile(file: File, currency: string, onProgress?: (m:
       review.warnings = guess.reasons;
     }
   }
-  if (failed && aiMode !== "off") {
+  if ((failed || weak) && aiMode !== "off") {
     review.aiSuggested = true;
     if (!opts.aiReady) review.warnings = [...review.warnings, "The local AI can read statements laid out like this one. Set it up in Settings, then drop the file again."];
   }
@@ -158,23 +160,55 @@ async function aiReview(base: Omit<Review, "table" | "pages" | "guess" | "summar
   let periodStart = summary.periodStart ?? null;
   let periodEnd = summary.periodEnd ?? null;
   let lastSection: string | null = null;
+  const cutPages: number[] = [];
   const total = extraction.pageTexts.length;
   for (let p = 0; p < total; p++) {
     const text = extraction.pageTexts[p] ?? "";
     if (text.trim().length < 20) continue;
-    onProgress?.(`AI reading page ${p + 1} of ${total}`);
-    const page = await aiExtractPage(text, periodStart, periodEnd, lastSection, currency);
-    if (!periodStart && page.periodStart) periodStart = page.periodStart;
-    if (!periodEnd && page.periodEnd) periodEnd = page.periodEnd;
-    if (summary.openingBalance === undefined && page.openingBalance !== null && page.openingBalance !== undefined) summary.openingBalance = page.openingBalance;
-    if (summary.closingBalance === undefined && page.closingBalance !== null && page.closingBalance !== undefined) summary.closingBalance = page.closingBalance;
-    for (const r of page.rows) {
-      if (!r || typeof r.date !== "string" || typeof r.amount !== "number" || !Number.isFinite(r.amount)) continue;
-      const amount = signFromSection(r.amount, r.section ?? "");
-      rows.push([r.date.trim(), (r.description ?? "").trim(), String(amount), r.balance === null || r.balance === undefined ? "" : String(r.balance)]);
-      pages.push(p + 1);
-      if (r.section && r.section.trim() !== "") lastSection = r.section.trim();
-    }
+    // A dense page is sent in pieces so every answer stays well inside the model's output limit,
+    // and a piece is split again when the model returns fewer rows than the text plainly holds.
+    const chunks = chunkPageText(text);
+    let part = 0;
+    const readChunk = async (piece: string, depth: number): Promise<void> => {
+      part++;
+      onProgress?.(`AI reading page ${p + 1} of ${total}${chunks.length > 1 || part > 1 ? ` (part ${part})` : ""}`);
+      const page = await aiExtractPage(piece, periodStart, periodEnd, lastSection, currency);
+      const expected = countCandidateRows(piece);
+      if (page.rows.length < expected && depth < 4) {
+        const halves = splitInTwo(piece);
+        if (halves) {
+          await readChunk(halves[0], depth + 1);
+          await readChunk(halves[1], depth + 1);
+          return;
+        }
+      }
+      if (page.truncated) cutPages.push(p + 1);
+      if (!periodStart && page.periodStart) periodStart = page.periodStart;
+      if (!periodEnd && page.periodEnd) periodEnd = page.periodEnd;
+      if (summary.openingBalance === undefined && page.openingBalance !== null && page.openingBalance !== undefined) summary.openingBalance = page.openingBalance;
+      if (summary.closingBalance === undefined && page.closingBalance !== null && page.closingBalance !== undefined) summary.closingBalance = page.closingBalance;
+      for (const r of page.rows) {
+        if (!r || typeof r.date !== "string" || typeof r.amount !== "number" || !Number.isFinite(r.amount)) continue;
+        // A zero row is a summary line ("Service fees -0.00") the model mistook for a transaction.
+        if (Math.round(r.amount * 100) === 0) continue;
+        const amount = signFromSection(r.amount, r.section ?? "");
+        rows.push([r.date.trim(), (r.description ?? "").trim(), String(amount), r.balance === null || r.balance === undefined ? "" : String(r.balance)]);
+        pages.push(p + 1);
+        if (r.section && r.section.trim() !== "") lastSection = r.section.trim();
+      }
+      // A heading printed after the last row of this piece governs the next piece, whatever the
+      // model returned (it may have returned nothing for a piece that ends with a heading).
+      const trailing = trailingHeading(piece);
+      if (trailing) lastSection = trailing;
+    };
+    for (const piece of chunks) await readChunk(piece, 0);
+  }
+  if (periodStart && periodEnd) {
+    const fixed = fitDatesToPeriod(rows, periodStart, periodEnd);
+    if (fixed.outside > 0) summary.notes.push(`${fixed.outside} row${fixed.outside === 1 ? "" : "s"} carry a date outside the statement period ${periodStart} to ${periodEnd}. Check them.`);
+  }
+  if (cutPages.length > 0) {
+    summary.notes.push(`The AI's answer was cut short on page${cutPages.length === 1 ? "" : "s"} ${[...new Set(cutPages)].join(", ")}; some rows there may be missing.`);
   }
   if (periodStart) summary.periodStart = periodStart;
   if (periodEnd) summary.periodEnd = periodEnd;
@@ -201,16 +235,111 @@ async function aiReview(base: Omit<Review, "table" | "pages" | "guess" | "summar
   }
   // Only trust running balances the model reports if they chain from row to row; a model can
   // invent balances for statements that never print them, and those must not enter the history.
-  if (rows.some((r) => r[3] !== "")) {
+  if (rows.length > 0 && rows.every((r) => r[3] !== "")) {
     const trial = applyMapping(make(withBalance), withBalance);
     if (trial.balanceVerified) return trial;
-    for (const r of rows) r[3] = "";
   }
+  for (const r of rows) r[3] = "";
   return applyMapping(make(withoutBalance), withoutBalance);
 }
 
-const MONEY_IN = /deposit|addition|credit|paid in|money in|interest (earned|paid)|refund|income|receipt/i;
-const MONEY_OUT = /withdraw|subtraction|debit|check|cheque|fee|charge|purchase|payment|paid out|money out|spending|transfer out/i;
+/** Longest piece of page text sent to the model in one request. */
+const AI_CHUNK_CHARS = 2000;
+/** Below this a piece is not split further, whatever the model returns. */
+const AI_MIN_CHUNK_CHARS = 350;
+
+/** Start of a transaction row: whitespace, then a month/day date. Never matches an amount like 12.50. */
+const DATE_TOKEN = /\s(?=(?:0?[1-9]|1[0-2])[/-](?:0?[1-9]|[12]\d|3[01])(?:[/-]\d{2,4})?\s)/g;
+
+/**
+ * How many transaction rows the text plainly contains: date tokens that are followed by some
+ * description and end in an amount. Date-only tables (daily balances) count too, which only makes
+ * the check stricter.
+ */
+export function countCandidateRows(text: string): number {
+  const m = ` ${text}`.match(/\s(?:0?[1-9]|1[0-2])[/-](?:0?[1-9]|[12]\d|3[01])(?:[/-]\d{2,4})?\s+(?=\S)/g);
+  return m ? m.length : 0;
+}
+
+/** Split a piece near its middle, just before a date token; null when it is already small. */
+export function splitInTwo(text: string): [string, string] | null {
+  if (text.length < AI_MIN_CHUNK_CHARS * 2) return null;
+  const mid = text.length / 2;
+  let best = -1;
+  let m: RegExpExecArray | null;
+  const re = new RegExp(DATE_TOKEN.source, "g");
+  while ((m = re.exec(text)) !== null) {
+    if (best < 0 || Math.abs(m.index - mid) < Math.abs(best - mid)) best = m.index;
+  }
+  if (best < AI_MIN_CHUNK_CHARS || text.length - best < AI_MIN_CHUNK_CHARS) return null;
+  return [text.slice(0, best).trim(), text.slice(best).trim()];
+}
+
+/**
+ * Split a page's text into pieces of at most AI_CHUNK_CHARS, cutting just before a date so a
+ * transaction is never split across two requests.
+ */
+export function chunkPageText(text: string): string[] {
+  const out: string[] = [];
+  let rest = text.trim();
+  while (rest.length > AI_CHUNK_CHARS) {
+    const window = rest.slice(0, AI_CHUNK_CHARS);
+    const dateStart = new RegExp(DATE_TOKEN.source, "g");
+    let cut = -1;
+    let m: RegExpExecArray | null;
+    while ((m = dateStart.exec(window)) !== null) {
+      if (m.index > AI_CHUNK_CHARS / 3) cut = m.index;
+    }
+    if (cut < 0) {
+      const space = window.lastIndexOf(" ");
+      cut = space > AI_CHUNK_CHARS / 2 ? space : AI_CHUNK_CHARS;
+    }
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest.length > 0) out.push(rest);
+  return out;
+}
+
+const MONEY_IN = /\b(?:deposits?|additions?|credits?|paid in|money in|interest (?:earned|paid)|refunds?|income|receipts?)\b/i;
+const MONEY_OUT = /\b(?:withdrawals?|subtractions?|debits?|checks?|cheques?|fees?|charges?|purchases?|payments?|paid out|money out|spending|transfers? out)\b/i;
+
+/** Section headings statements print between groups of rows. */
+const HEADING = /\b(deposits and other (?:additions|credits)|withdrawals and other (?:subtractions|debits)|checks(?: paid)?|service fees|fees|payments and (?:other )?credits|purchases(?: and adjustments)?|interest charged|deposits|withdrawals)\b/gi;
+
+/** The heading printed after the last dated row of a piece of text, if any. */
+export function trailingHeading(text: string): string | null {
+  let lastDate = -1;
+  const dates = new RegExp(DATE_TOKEN.source, "g");
+  let m: RegExpExecArray | null;
+  while ((m = dates.exec(text)) !== null) lastDate = m.index;
+  let heading: { index: number; text: string } | null = null;
+  const re = new RegExp(HEADING.source, "gi");
+  while ((m = re.exec(text)) !== null) heading = { index: m.index, text: m[1]! };
+  return heading && heading.index > lastDate ? heading.text : null;
+}
+
+/**
+ * Dates the model returned that fall outside the statement period usually have the wrong year
+ * (a January statement reading December rows, say). Move them by a year when that lands inside
+ * the period; count the rest.
+ */
+export function fitDatesToPeriod(rows: string[][], start: string, end: string): { outside: number } {
+  let outside = 0;
+  for (const r of rows) {
+    const d = r[0] ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      outside++;
+      continue;
+    }
+    if (d >= start && d <= end) continue;
+    const year = Number(d.slice(0, 4));
+    const fixed = [year - 1, year + 1].map((y) => `${y}${d.slice(4)}`).find((c) => c >= start && c <= end);
+    if (fixed) r[0] = fixed;
+    else outside++;
+  }
+  return { outside };
+}
 
 /**
  * The heading a row sits under decides its sign on statements that print unsigned amounts in
@@ -236,20 +365,22 @@ export function applyMapping(review: Review, mapping: ColumnMapping): Review {
   });
   const warnings = [...r.warnings];
   let balanceVerified = r.balanceVerified;
+  const cents = (v: number) => Math.round(v * 100);
   if (review.summary?.closingBalance !== undefined && r.transactions.length > 0) {
     const last = r.transactions[r.transactions.length - 1]!;
-    if (last.balanceAfter !== undefined && Math.abs(last.balanceAfter - review.summary.closingBalance) > 0.011) {
+    if (last.balanceAfter !== undefined && cents(last.balanceAfter) !== cents(review.summary.closingBalance)) {
+      balanceVerified = false;
       warnings.push(`Last running balance ${last.balanceAfter} does not match the statement's closing balance ${review.summary.closingBalance}.`);
     }
   }
   // No running-balance column: the statement's own totals can still vouch for the rows.
   if (mapping.balance === undefined && review.summary?.openingBalance !== undefined && review.summary?.closingBalance !== undefined && r.transactions.length > 0) {
-    const sum = r.transactions.reduce((acc, t) => acc + t.amount, 0);
-    const expected = review.summary.closingBalance - review.summary.openingBalance;
-    if (Math.abs(sum - expected) <= 0.011) {
+    const sum = r.transactions.reduce((acc, t) => acc + cents(t.amount), 0);
+    const expected = cents(review.summary.closingBalance) - cents(review.summary.openingBalance);
+    if (sum === expected) {
       balanceVerified = true;
     } else {
-      warnings.push(`The rows add up to ${sum.toFixed(2)}, but the statement moves from ${review.summary.openingBalance} to ${review.summary.closingBalance} (a change of ${expected.toFixed(2)}). Some rows may be missing or have the wrong sign.`);
+      warnings.push(`The rows add up to ${(sum / 100).toFixed(2)}, but the statement moves from ${review.summary.openingBalance} to ${review.summary.closingBalance} (a change of ${(expected / 100).toFixed(2)}). Some rows may be missing or have the wrong sign.`);
     }
   }
   return { ...review, mapping, transactions: r.transactions, balanceVerified, warnings };

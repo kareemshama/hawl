@@ -61,8 +61,17 @@ async fn ai_extract_page(
     state: tauri::State<'_, LlmState>,
 ) -> Result<AiPage, String> {
     llm::start_server(&llm::data_dir(&app), &state)?;
-    llm::wait_for_server().await?;
+    llm::wait_for_server(&state).await?;
     llm::extract_page(&text, period_start.as_deref(), period_end.as_deref(), previous_section.as_deref(), &currency).await
+}
+
+/// Switch models. The chosen model is downloaded by `ai_setup` if it is not there yet.
+#[tauri::command]
+fn ai_set_model(id: String, app: tauri::AppHandle, state: tauri::State<'_, LlmState>) -> Result<AiStatus, String> {
+    let dir = llm::data_dir(&app);
+    llm::set_model(&dir, &id)?;
+    llm::stop_server(&state);
+    Ok(llm::status(&dir, &state))
 }
 
 #[tauri::command]
@@ -127,6 +136,7 @@ pub fn run() {
             ai_setup,
             ai_extract_page,
             ai_set_gpu,
+            ai_set_model,
             fetch_prices,
             hijri_from_gregorian,
             hijri_to_gregorian,
