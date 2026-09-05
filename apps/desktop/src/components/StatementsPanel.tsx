@@ -431,7 +431,7 @@ function ReviewCard({ review, others = [], profile, onUpdate, onToggle, onSkip, 
         <div className="grid gap-3 text-sm sm:grid-cols-3">
           <Kv k="Opening balance" v={review.summary.openingBalance !== undefined ? money(review.summary.openingBalance, profile.currency) : "not found"} />
           <Kv k="Closing balance" v={review.summary.closingBalance !== undefined ? money(review.summary.closingBalance, profile.currency) : "not found"} />
-          <Kv k="Period" v={review.summary.periodStart && review.summary.periodEnd ? `${review.summary.periodStart} to ${review.summary.periodEnd}` : "not found"} />
+          <Kv k="Statement period" v={review.summary.periodStart && review.summary.periodEnd ? `${review.summary.periodStart} to ${review.summary.periodEnd}` : "not found"} />
         </div>
       )}
 
@@ -493,7 +493,7 @@ function ReviewCard({ review, others = [], profile, onUpdate, onToggle, onSkip, 
                 <tr>
                   <th className="px-3 py-2"></th>
                   <th className="px-3 py-2">File</th>
-                  <th className="px-3 py-2">Period</th>
+                  <th className="px-3 py-2">Statement period</th>
                   <th className="px-3 py-2 text-right">Rows</th>
                   <th className="px-3 py-2">Status</th>
                 </tr>
