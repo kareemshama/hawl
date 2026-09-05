@@ -256,7 +256,7 @@ export default function App() {
 
   const navItems: [View, string][] = [
     ["overview", "Overview"],
-    ["statements", `Statements${profile.accounts.length ? ` (${profile.accounts.length})` : ""}`],
+    ["statements", `Import${profile.accounts.length ? ` (${profile.accounts.length})` : ""}`],
     ["assets", `Assets${profile.assets.length + derivedAssets.length ? ` (${profile.assets.length + derivedAssets.length})` : ""}`],
     ["liabilities", `Liabilities${profile.liabilities.length ? ` (${profile.liabilities.length})` : ""}`],
     ["years", "Past years"],
@@ -308,7 +308,7 @@ export default function App() {
               onAdoptRestart={(d) => void adoptRestart(d)}
             />
           )}
-          {view === "statements" && <StatementsPanel profile={profile} onChange={update} series={series} anniversary={anniversary} nisabValue={nisabValue} windowStart={windowStart} />}
+          {view === "statements" && <StatementsPanel profile={profile} onChange={update} series={series} anniversary={anniversary} nisabValue={nisabValue} windowStart={windowStart} derivedAssets={derivedAssets} traces={traceMap} />}
           {view === "assets" && (
             <ItemsPanel<Asset["kind"], Asset>
               title="Assets"

@@ -7,6 +7,8 @@ interface Props {
   nisab: number;
   currency: string;
   anniversary: string | null;
+  /** The parent shows its own headline figures. */
+  hideStats?: boolean;
 }
 
 // Validated with the dataviz palette checker (light surface): line #2f7d4a, threshold #b8860b.
@@ -16,7 +18,7 @@ const W = 720;
 const H = 220;
 const PAD = { top: 16, right: 24, bottom: 28, left: 64 };
 
-export default function CarryOverChart({ series, nisab, currency, anniversary }: Props) {
+export default function CarryOverChart({ series, nisab, currency, anniversary, hideStats = false }: Props) {
   const [hover, setHover] = useState<number | null>(null);
   const [showTable, setShowTable] = useState(false);
   const clipId = useId();
@@ -72,11 +74,13 @@ export default function CarryOverChart({ series, nisab, currency, anniversary }:
 
   return (
     <div>
-      <div className="mb-3 grid gap-3 text-sm sm:grid-cols-3">
-        <Stat label="Lowest point" value={money(low.total, currency)} sub={low.date} tone={low.total < nisab ? "warn" : "ok"} />
-        <Stat label={anniversary ? "On the anniversary" : "Latest"} value={money(last.total, currency)} sub={last.date} />
-        <Stat label="Days below nisab" value={String(geom.dips)} sub={geom.dips === 0 ? "stayed above all year" : "hawl may have restarted (R2.2)"} tone={geom.dips === 0 ? "ok" : "warn"} />
-      </div>
+      {!hideStats && (
+        <div className="mb-3 grid gap-3 text-sm sm:grid-cols-3">
+          <Stat label="Lowest point" value={money(low.total, currency)} sub={low.date} tone={low.total < nisab ? "warn" : "ok"} />
+          <Stat label={anniversary ? "On the anniversary" : "Latest"} value={money(last.total, currency)} sub={last.date} />
+          <Stat label="Days below nisab" value={String(geom.dips)} sub={geom.dips === 0 ? "stayed above all year" : "hawl may have restarted (R2.2)"} tone={geom.dips === 0 ? "ok" : "warn"} />
+        </div>
+      )}
 
       <svg
         viewBox={`0 0 ${W} ${H}`}

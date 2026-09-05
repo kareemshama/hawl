@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0 (2026-09-04)
+
+The Statements screen is now an Import page that leads with the answer.
+
+- Drop a year of files. Every file that reconciles against its own opening and closing balance
+  goes into a "Ready to import" list: pick the account once and import them in one click. Only
+  files that did not reconcile go through the per-file review.
+- Coverage card: how many statements and accounts, the earliest and latest date covered, a
+  month strip per account against the hawl window, and the exact date ranges still missing.
+- What counts card: lowest balance in the year and its date, the balance on the anniversary,
+  whether it stayed above nisab, and the cash counted toward zakat with the rule numbers, above
+  the carry-over chart.
+- Accounts and files are collapsed at the bottom.
+- The statement's own period is labelled "Statement period" so it is not read as the hawl.
+
 ## 0.4.1 (2026-09-04)
 
 Fixes from the first run on real Bank of America statements, where every file failed with

@@ -1,10 +1,12 @@
 import { useRef, useState } from "react";
-import type { AccountKind, ColumnMapping, DateOrder, StatementAccount } from "@hawl/core-types";
+import type { AccountKind, Asset, ColumnMapping, DateOrder, StatementAccount, Trace } from "@hawl/core-types";
 import { analyzeFile, applyMapping, commitImport, removeAccount, removeImport, type Review } from "../lib/importer";
 import { money } from "../lib/format";
 import { newId, type Profile } from "../lib/profile";
-import type { SeriesResult } from "@hawl/statements";
+import { isCashAccount, type SeriesResult } from "@hawl/statements";
 import CarryOverChart from "./CarryOverChart";
+import CoverageCard from "./CoverageCard";
+import { daysInclusive } from "../lib/coverage";
 import AiSetupCard, { useAiStatus } from "./AiSetup";
 import type { HijriDate } from "../lib/commands";
 
@@ -15,6 +17,10 @@ interface Props {
   anniversary: HijriDate | null;
   nisabValue: number | null;
   windowStart: string | null;
+  /** Cash assets the engine derived from the statements on the anniversary. */
+  derivedAssets: Asset[];
+  /** Audit-trail entries by asset id, for the counted figure. */
+  traces: Map<string, Trace>;
 }
 
 const KINDS: { value: AccountKind; label: string }[] = [
@@ -57,8 +63,13 @@ function makeBatch(reviews: Review[]): BatchItem[] {
   return [lead, ...others].map((review) => ({ review, include: hasContent(review) }));
 }
 
-export default function StatementsPanel({ profile, onChange, series, anniversary, nisabValue, windowStart }: Props) {
+export default function StatementsPanel({ profile, onChange, series, anniversary, nisabValue, windowStart, derivedAssets, traces }: Props) {
   const [batch, setBatch] = useState<BatchItem[] | null>(null);
+  // Files that reconciled against their own balances: imported in one step, no per-file review.
+  const [ready, setReady] = useState<Review[] | null>(null);
+  const [readyAccount, setReadyAccount] = useState<string>("new");
+  const [readyName, setReadyName] = useState("");
+  const [readyKind, setReadyKind] = useState<AccountKind>("checking");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -88,7 +99,46 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
       setBusy(null);
     }
     if (failed.length > 0) setError(failed.length === 1 ? failed[0]! : `${failed.length} files could not be read:\n${failed.join("\n")}`);
-    if (reviews.length > 0) setBatch(makeBatch(reviews));
+    const reconciled = reviews.filter((r) => r.balanceVerified && r.transactions.length > 0);
+    const rest = reviews.filter((r) => !reconciled.includes(r));
+    if (reconciled.length > 0) {
+      setReady(reconciled);
+      const cash = profile.accounts.filter(isCashAccount);
+      setReadyAccount(cash[0]?.id ?? "new");
+      setReadyName(guessName(reconciled[0]!));
+      setReadyKind(guessKind(reconciled[0]!));
+    }
+    if (rest.length > 0) setBatch(makeBatch(rest));
+  };
+
+  /** Import every reconciled file into one account. */
+  const importReady = () => {
+    if (!ready || ready.length === 0) return;
+    let p = profile;
+    let accountId = readyAccount;
+    if (accountId === "new" || !p.accounts.some((a) => a.id === accountId)) {
+      const acct: StatementAccount = { id: newId(), name: readyName.trim() || guessName(ready[0]!), kind: readyKind, currency: ready[0]!.hint.currency ?? profile.currency };
+      p = { ...p, accounts: [...p.accounts, acct] };
+      accountId = acct.id;
+    }
+    let added = 0;
+    let skipped = 0;
+    for (const r of ready) {
+      const res = commitImport(p, r, accountId, false);
+      p = res.profile;
+      added += res.added;
+      skipped += res.skipped;
+    }
+    onChange(p);
+    setLastCommit(`${added} transaction${added === 1 ? "" : "s"} added from ${ready.length} statement${ready.length === 1 ? "" : "s"}${skipped ? `, ${skipped} already present skipped` : ""}.${batch ? ` ${batch.length} file${batch.length === 1 ? "" : "s"} left to review.` : ""}`);
+    setReady(null);
+  };
+
+  /** Send the reconciled files through the review card after all. */
+  const reviewReadyInstead = () => {
+    if (!ready) return;
+    setBatch(makeBatch([...ready, ...(batch ? batch.map((b) => b.review) : [])]));
+    setReady(null);
   };
 
   /** The lead review changed (columns edited). Re-run the followers under the new columns. */
@@ -162,11 +212,26 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <header>
-        <h2 className="text-2xl font-semibold">Statements</h2>
+        <h2 className="text-2xl font-semibold">Import statements</h2>
         <p className="mt-1 text-sm text-ink/60">
-          Drop bank statements to rebuild your balance through the year. Files stay on this computer. PDF, CSV, OFX/QFX, and QIF are accepted.
+          Drop a year of bank statements. Hawl reads them, checks each file against its own balances, and works out what you carried through the year. Files stay on this computer. PDF, CSV, OFX/QFX, and QIF are accepted.
         </p>
       </header>
+
+      {ready && ready.length > 0 && (
+        <ReadyCard
+          ready={ready}
+          profile={profile}
+          account={readyAccount}
+          name={readyName}
+          kind={readyKind}
+          onAccount={setReadyAccount}
+          onName={setReadyName}
+          onKind={setReadyKind}
+          onImport={importReady}
+          onReview={reviewReadyInstead}
+        />
+      )}
 
       {lead && batch ? (
         <>
@@ -198,7 +263,7 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
             }
           />
         </>
-      ) : (
+      ) : ready ? null : (
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -237,28 +302,19 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
         </div>
       )}
 
-      <section className="card">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-semibold">Carry-over through the hawl</h3>
-          {anniversary && windowStart && <span className="text-xs text-ink/50">{windowStart} to {anniversary.gregorian}</span>}
-        </div>
-        {series && series.series.length > 0 && nisabValue !== null ? (
-          <CarryOverChart series={series.series} nisab={nisabValue} currency={profile.currency} anniversary={anniversary?.gregorian ?? null} />
-        ) : (
-          <p className="text-sm text-ink/60">Import statements covering the hawl to see the daily balance, the lowest point, and whether it stayed above nisab.</p>
-        )}
-        {series && series.warnings.length > 0 && (
-          <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink/70">
-            {series.warnings.map((w) => (
-              <li key={w}>{w}</li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <CoverageCard profile={profile} anniversary={anniversary} windowStart={windowStart} />
 
-      <section className="space-y-3">
-        <h3 className="font-semibold">Accounts</h3>
-        {profile.accounts.length === 0 && <div className="card text-sm text-ink/60">No accounts yet. Import a statement and you will be asked which account it belongs to.</div>}
+      <WhatCounts series={series} nisabValue={nisabValue} anniversary={anniversary} windowStart={windowStart} currency={profile.currency} derivedAssets={derivedAssets} traces={traces} />
+
+      <details className="card">
+        <summary className="cursor-pointer font-semibold">
+          Accounts and files
+          <span className="ml-2 text-sm font-normal text-ink/50">
+            {profile.accounts.length} account{profile.accounts.length === 1 ? "" : "s"}, {profile.imports.length} file{profile.imports.length === 1 ? "" : "s"}
+          </span>
+        </summary>
+        <div className="mt-3 space-y-3">
+        {profile.accounts.length === 0 && <div className="text-sm text-ink/60">No accounts yet. Import a statement and you will be asked which account it belongs to.</div>}
         {profile.accounts.map((a) => {
           const imps = profile.imports.filter((i) => i.accountId === a.id);
           const count = profile.transactions.filter((t) => t.accountId === a.id).length;
@@ -345,7 +401,170 @@ export default function StatementsPanel({ profile, onChange, series, anniversary
             </div>
           );
         })}
-      </section>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+interface ReadyCardProps {
+  ready: Review[];
+  profile: Profile;
+  account: string;
+  name: string;
+  kind: AccountKind;
+  onAccount: (id: string) => void;
+  onName: (v: string) => void;
+  onKind: (k: AccountKind) => void;
+  onImport: () => void;
+  onReview: () => void;
+}
+
+/** Files that reconciled against their own balances: one look, one click. */
+function ReadyCard({ ready, profile, account, name, kind, onAccount, onName, onKind, onImport, onReview }: ReadyCardProps) {
+  const cash = profile.accounts.filter(isCashAccount);
+  const starts = ready.map((r) => r.hint.periodStart ?? r.transactions[0]?.date).filter((d): d is string => !!d).sort();
+  const ends = ready.map((r) => r.hint.periodEnd ?? r.transactions[r.transactions.length - 1]?.date).filter((d): d is string => !!d).sort();
+  const rows = ready.reduce((n, r) => n + r.transactions.length, 0);
+  return (
+    <section className="card space-y-4 border-moss-200">
+      <div>
+        <h3 className="font-semibold">Ready to import</h3>
+        <p className="mt-1 text-sm text-ink/60">
+          {ready.length} statement{ready.length === 1 ? "" : "s"}, {rows} transaction{rows === 1 ? "" : "s"}, every file reconciled against its own opening and closing balance
+          {starts.length > 0 && ends.length > 0 ? (
+            <>
+              , covering <span className="num text-ink">{starts[0]}</span> to <span className="num text-ink">{ends[ends.length - 1]}</span>
+            </>
+          ) : null}
+          .
+        </p>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-sand-200">
+        <table className="w-full text-sm">
+          <thead className="bg-sand-50 text-left text-xs uppercase text-ink/50">
+            <tr>
+              <th className="px-3 py-2">File</th>
+              <th className="px-3 py-2">Statement period</th>
+              <th className="px-3 py-2 text-right">Rows</th>
+              <th className="px-3 py-2">Read by</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ready.map((r) => (
+              <tr key={r.file} className="border-t border-sand-100">
+                <td className="max-w-xs truncate px-3 py-1.5" title={r.file}>{r.file}</td>
+                <td className="num px-3 py-1.5 text-ink/70">{r.hint.periodStart && r.hint.periodEnd ? `${r.hint.periodStart} to ${r.hint.periodEnd}` : ""}</td>
+                <td className="num px-3 py-1.5 text-right">{r.transactions.length}</td>
+                <td className="px-3 py-1.5 text-xs text-moss-700">{r.method === "ai" ? "local AI, reconciled" : "parser, reconciled"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="label">Account</label>
+          <select className="input" value={account} onChange={(e) => onAccount(e.target.value)}>
+            {cash.map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+            <option value="new">New account...</option>
+          </select>
+        </div>
+        {account === "new" && (
+          <>
+            <div>
+              <label className="label">Account name</label>
+              <input className="input" value={name} onChange={(e) => onName(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Kind</label>
+              <select className="input" value={kind} onChange={(e) => onKind(e.target.value as AccountKind)}>
+                {KINDS.map((k) => (
+                  <option key={k.value} value={k.value}>{k.label}</option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
+      </div>
+      <p className="help">All of these go into the same account. If they are from different accounts, review them one by one instead.</p>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <button className="btn-ghost mr-auto" onClick={onReview}>Review one by one instead</button>
+        <button className="btn-primary" disabled={account === "new" && name.trim() === ""} onClick={onImport}>
+          Import {ready.length} statement{ready.length === 1 ? "" : "s"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+interface WhatCountsProps {
+  series: SeriesResult | null;
+  nisabValue: number | null;
+  anniversary: HijriDate | null;
+  windowStart: string | null;
+  currency: string;
+  derivedAssets: Asset[];
+  traces: Map<string, Trace>;
+}
+
+/** The answer the statements give: lowest point, the anniversary balance, and the cash that counts. */
+function WhatCounts({ series, nisabValue, anniversary, windowStart, currency, derivedAssets, traces }: WhatCountsProps) {
+  const pts = series?.series ?? [];
+  const have = pts.length > 0 && nisabValue !== null;
+  let low = pts[0];
+  for (const p of pts) if (low && p.total < low.total) low = p;
+  const last = pts[pts.length - 1];
+  const dips = nisabValue === null ? 0 : pts.filter((p) => p.total < nisabValue).length;
+  const counted = derivedAssets.reduce((acc, a) => acc + (traces.get(a.id)?.zakatable ?? (a.kind === "cash" ? a.amount : 0)), 0);
+  const windowDays = windowStart && anniversary ? daysInclusive(windowStart, anniversary.gregorian) : pts.length;
+  const known = pts.length;
+  const partial = known < windowDays;
+  return (
+    <section className="card">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="font-semibold">What counts</h3>
+        {anniversary && windowStart && <span className="text-xs text-ink/50">hawl {windowStart} to {anniversary.gregorian}</span>}
+      </div>
+      {have && low && last && nisabValue !== null ? (
+        <>
+          <div className="mb-4 grid gap-3 text-sm sm:grid-cols-4">
+            <Figure label="Lowest balance" value={money(low.total, currency)} sub={low.date} tone={low.total < nisabValue ? "warn" : "ok"} />
+            <Figure label={anniversary ? "On the anniversary" : "Latest"} value={money(last.total, currency)} sub={last.date} />
+            <Figure
+              label="Above nisab"
+              value={dips === 0 ? (partial ? "So far" : "All year") : `${dips} day${dips === 1 ? "" : "s"} below`}
+              sub={dips > 0 ? "the hawl may have restarted (R2.2)" : partial ? `${known} of ${windowDays} days have statements` : "the hawl held (R2.2)"}
+              tone={dips === 0 && !partial ? "ok" : "warn"}
+              text
+            />
+            <Figure label="Cash counted" value={money(counted, currency)} sub={`R4.1, R15.1${dips > 0 ? ", R2.2" : ""}`} tone="ok" />
+          </div>
+          <p className="mb-3 text-sm text-ink/60">The counted figure is your cash accounts on the anniversary, after ownership shares and exchange rates. It joins your other assets on the Overview, where the verdict and the audit trail live.</p>
+          <CarryOverChart series={pts} nisab={nisabValue} currency={currency} anniversary={anniversary?.gregorian ?? null} hideStats />
+        </>
+      ) : (
+        <p className="text-sm text-ink/60">Import statements covering the hawl to see the lowest balance, the balance on the anniversary, and the cash that counts toward zakat.</p>
+      )}
+      {series && series.warnings.length > 0 && (
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink/70">
+          {series.warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function Figure({ label, value, sub, tone, text = false }: { label: string; value: string; sub: string; tone?: "ok" | "warn"; text?: boolean }) {
+  return (
+    <div className="rounded-lg bg-sand-50 px-3 py-2">
+      <div className="text-xs uppercase tracking-wide text-ink/50">{label}</div>
+      <div className={`${text ? "" : "num "}text-lg font-semibold`}>{value}</div>
+      <div className={`text-xs ${tone === "warn" ? "text-gold-600" : tone === "ok" ? "text-moss-700" : "text-ink/50"}`}>{sub}</div>
     </div>
   );
 }
